@@ -143,3 +143,6 @@ Protocol specification: https://github.com/CYD-PRC/EEAL
 ## License
 
 MIT
+
+## 实验数据
+- [三模型对照实验报告](docs/THREE_MODEL_BENCHMARK.md)
