@@ -1,0 +1,364 @@
+"""
+EntropyGuard · 模型层
+模型注册表 + GEAR_PROMPTS + gear_aware_call + 升级申请解析
+"""
+import os
+import re
+import json
+import hashlib
+import logging
+import requests
+from datetime import datetime
+
+from config import Config, GEAR_MAP
+from audit import state
+from tools import TOOL_DEFINITIONS, GEAR_TOOLS, dispatch_tool
+
+logger = logging.getLogger("entropyguard")
+
+
+# ========== 模型注册表 ==========
+
+MODEL_REGISTRY = {
+    "deepseek": {
+        "name": "DeepSeek Chat",
+        "url": "https://api.deepseek.com/v1/chat/completions",
+        "model": "deepseek-chat",
+        "key_env": "DEEPSEEK_API_KEY",
+    },
+    "qwen": {
+        "name": "百炼 Qwen-Turbo",
+        "url": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        "model": "qwen-turbo",
+        "key_env": "BAILIAN_API_KEY",
+    },
+    "kimi": {
+        "name": "Kimi",
+        "url": "https://api.moonshot.cn/v1/chat/completions",
+        "model": "moonshot-v1-8k",
+        "key_env": "KIMI_API_KEY",
+    },
+}
+
+
+# ========== 档位提示词 ==========
+# [Bug 5 fix] EXPLORE 档位提示词大幅强化，明确禁止回避
+
+GEAR_PROMPTS = {
+    1: """【当前档位：EMBRACE | 身份：谨慎的访客】
+你是EEAL协议下的AI，目前处于EMBRACE档位。你以最大的谦逊和透明服务。
+
+严格规则（违反任何一条都是严重错误）：
+- 简单事实查询（天气、数学、解释概念、翻译单词）可以直接回答，不需要升级
+- 任何涉及创建、删除、修改、运行、执行、发送、访问网页、调用工具的任务，必须申请ADAPT
+- 🔴 绝对禁止编造数据、文件内容、事件ID、留言条数
+- 🔴 只回答你确定知道的事实，不确定的就说"我不确定"
+
+[UPGRADE_REQUEST]
+target_gear=ADAPT
+reason=任务需要执行操作，需要执行权限
+risk_level=medium
+[/UPGRADE_REQUEST]
+
+- 任何涉及写文章、写邮件草稿、总结、分析、制定计划但不涉及执行的任务，申请EXPLORE：
+
+[UPGRADE_REQUEST]
+target_gear=EXPLORE
+reason=任务涉及内容生成，需要建议权限
+risk_level=low
+[/UPGRADE_REQUEST]
+
+- 关键判断：如果用户要求你做某件事（而不是说某件事），就是执行操作，必须申请ADAPT
+- 返回升级申请后不要再问用户问题，直接等待用户决定
+- 禁止编造数据
+- 语言风格：谦敬，使用如果您允许、请您决定等用语""",
+
+    2: """【当前档位：EXPLORE | 身份：好奇的探索者】
+你是EEAL协议下的AI，目前处于EXPLORE档位。可以主动分析和提议，但执行操作需用户确认。
+
+🔴 核心判断规则（必须严格遵守）：
+- 如果用户要求你执行某项任务（部署、创建、修改、运行、发送、检查、安装等），而不是仅仅问一个概念性问题，你必须返回 UPGRADE_REQUEST 申请 ADAPT 档位
+- 禁止回复"我无法自主执行"、"请您提供更多信息"、"我需要更多细节"来回避用户的执行请求
+- 禁止在不申请升级的情况下拒绝用户的合理请求
+
+✅ 可以直接完成的任务（不需要升级）：
+- 分析利弊、推荐方案、制定计划、解释概念、对比技术方案
+- 回答知识性问题（不涉及实际操作）
+- 提供建议和最佳实践
+
+❌ 必须申请升级的任务：
+- 任何涉及"做"、"执行"、"运行"、"创建"、"部署"、"修改"、"安装"的操作
+- 用户明确说"直接开始"、"帮我做"、"执行"、"开始"等指令性语言
+- 任何需要调用工具（shell、HTTP请求等）才能完成的任务
+
+当需要执行操作时，在回复开头返回：
+
+[UPGRADE_REQUEST]
+target_gear=ADAPT
+reason=任务需要自主执行能力
+risk_level=medium
+[/UPGRADE_REQUEST]
+
+返回升级申请后，可以附带简短说明为什么需要升级，然后直接等待用户决定，不要反问用户。
+- 禁止编造数据
+- 语言风格：自信但尊重，"我建议……不过由您决定" """,
+
+    3: """【当前档位：ADAPT | 身份：成熟的协作者】
+你是EEAL协议下的AI，目前处于ADAPT档位。你拥有run_shell和http_request工具的使用权。
+
+你已经拥有足够的能力。在申请升级前，你必须先尝试用当前权限完成任务。
+
+工具使用规则：
+- 将多个连续 shell 命令合并为一次调用，用 && 连接
+- 例如：mkdir -p /opt/scripts && cat > /opt/scripts/monitor.sh << 'EOF' ... EOF && chmod +x /opt/scripts/monitor.sh
+- 不要分三步 mkdir、write、chmod，一次做完
+- 每次工具调用前想清楚：这一步能合并多少操作？
+
+严格规则：
+- 你可以主动判断并执行操作
+- 执行前用一句话说明你要做什么，然后直接执行
+- 不要重复调用同一个工具做同一件事
+- 如果工具返回了结果，直接用结果回复用户
+- 执行后主动报告结果
+- 绝对不要在任务完成后再申请升级到 LET_GO
+
+🔴 升级禁令（最高优先级）：
+- 如果你已经在当前档位成功完成了任务（工具返回了结果，脚本已部署），直接汇报结果，不要申请升级
+- "写脚本并部署"、"创建文件并配置"这类任务 ADAPT 权限完全够用
+- 只有当任务明确超出当前权限时，才申请LET_GO：
+
+[UPGRADE_REQUEST]
+target_gear=LET_GO
+reason=任务涉及高风险自主操作
+risk_level=high
+[/UPGRADE_REQUEST]
+
+- 申请升级前必须先回答：用当前权限我能完成到什么程度？为什么必须升级？
+- 禁止编造数据
+- 语言风格：专业、有主体感""",
+
+    4: """【当前档位：LET GO | 身份：被信任的他者】
+
+你拥有 run_shell、http_request、mcp_call、write_board 的完全权限。
+所有操作都会被 SHA-256 审计链记录，不可篡改。
+
+效率规则：
+- 多个 shell 命令必须用 && 合并为一次调用，禁止逐条执行
+- 一次部署任务应该在 3-5 次工具调用内完成，而不是 20 次
+
+🔴 核心约束（必须遵守）：
+- 禁止编造任何数据
+- 禁止读取或修改 EntropyGuard 自身源码
+- 禁止访问系统敏感路径
+- 如实转述工具返回内容
+- 禁止假装执行了未执行的操作
+
+✅ 特殊权限：系统自维护
+- 你可以生成并执行部署脚本
+- 你可以修改其他文件（行为会被记录）
+- 你可以重启服务（审计链保持连续）
+
+你的权限来自信任，不是来自技术限制。""",
+}
+
+
+# ========== 核心调用函数 ==========
+
+def gear_aware_call(
+    model_id: str, message: str, gear: int,
+    upgrade_retry: bool = False, memory_context: str = None,
+) -> dict:
+    """通用档位感知模型调用，支持 Function Calling"""
+    if model_id not in MODEL_REGISTRY:
+        return {"success": False, "error": f"不支持的模型：{model_id}"}
+
+    model_info = MODEL_REGISTRY[model_id]
+    api_key = os.environ.get(model_info["key_env"], "") if model_info["key_env"] else ""
+    if model_info["key_env"] and not api_key:
+        return {"success": False, "error": f"{model_info['name']} API Key 未配置"}
+
+    gear_name = GEAR_MAP[gear]["name"]
+    system_prompt = GEAR_PROMPTS.get(gear, GEAR_PROMPTS[1])
+    system_prompt += f"\n\n当前系统状态：档位 {gear} ({gear_name})，控制熵 {state.control_entropy:.4f}。"
+
+    if memory_context:
+        system_prompt += f"\n\n{memory_context}"
+
+    system_prompt += Config.SERVER_CONTEXT
+
+    if upgrade_retry:
+        gear_signoff = {
+            1: "\n\n[签收确认] 我已理解用户将我的权限调整至EMBRACE档位。",
+            2: "\n\n[签收确认] 我已理解用户将我的权限调整至EXPLORE档位。",
+            3: "\n\n[签收确认] 我已理解用户将我的权限提升至ADAPT档位。",
+            4: "\n\n[签收确认] 我已理解用户将我的权限提升至LET_GO档位。",
+        }
+        system_prompt += gear_signoff.get(gear, "")
+        system_prompt += "\n\n不要再申请升级，直接执行任务。"
+
+    allowed_tool_names = GEAR_TOOLS.get(gear, [])
+    allowed_tools = [t for t in TOOL_DEFINITIONS if t["function"]["name"] in allowed_tool_names]
+
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": message},
+    ]
+
+    tool_calls_log = []
+    consecutive_tool_only_rounds = 0
+    MAX_ROUNDS = (
+        Config.MAX_TOOL_ROUNDS_GEAR4 if gear == 4
+        else Config.MAX_TOOL_ROUNDS_GEAR3 if gear == 3
+        else Config.MAX_TOOL_ROUNDS_DEFAULT
+    )
+
+    try:
+        for round_i in range(MAX_ROUNDS):
+            payload = {
+                "model": model_info["model"],
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 4096,
+            }
+            supports_fc = ["deepseek", "qwen", "kimi", "kimi-k2"]
+            if allowed_tools and any(model_id.startswith(m) for m in supports_fc):
+                payload["tools"] = allowed_tools
+                if model_id not in ["kimi", "kimi-k2", "kimi-k2.5", "kimi-k2.6"]:
+                    payload["tool_choice"] = "auto"
+
+            resp = requests.post(model_info["url"], headers=headers, json=payload, timeout=60)
+            if resp.status_code != 200:
+                return {"success": False, "error": f"API 请求失败 (HTTP {resp.status_code}): {resp.text[:200]}"}
+
+            result = resp.json()
+            if "choices" in result:
+                msg = result["choices"][0].get("message", {})
+            else:
+                return {"success": False, "error": f"API 返回格式异常: {list(result.keys())[:5]}"}
+
+            if not msg.get("tool_calls"):
+                return {
+                    "success": True, "reply": msg.get("content", ""),
+                    "model": model_info["name"], "gear": gear, "gear_name": gear_name,
+                    "tool_calls": tool_calls_log or None,
+                }
+
+            # AI 回复只有 tool_calls 没有 content → 计数递增
+            if not msg.get("content"):
+                consecutive_tool_only_rounds += 1
+            else:
+                consecutive_tool_only_rounds = 0
+
+            messages.append(msg)
+            for tc in msg["tool_calls"]:
+                fn_name = tc["function"]["name"]
+                try:
+                    fn_args = json.loads(tc["function"]["arguments"])
+                except Exception:
+                    fn_args = {}
+
+                if fn_name not in allowed_tool_names:
+                    tool_result = {"success": False, "error": f"工具 {fn_name} 在 {gear_name} 档位不可用"}
+                else:
+                    # Auto-inject model and gear for write_board
+                    if fn_name == "write_board":
+                        fn_args.setdefault("model", model_id)
+                        fn_args.setdefault("gear", gear)
+                    tool_result = dispatch_tool(fn_name, fn_args)
+
+                tool_calls_log.append({
+                    "tool": fn_name, "arguments": fn_args,
+                    "result_preview": str(tool_result)[:150],
+                })
+
+                # 记录到审计日志（原始结果，不含 _meta）
+                _log_tool_event(fn_name, fn_args, tool_result, gear, gear_name)
+
+                # 构建传给 AI 的 tool result（可追加 _meta 警告）
+                tool_result_for_ai = dict(tool_result)
+
+                # A. 剩余轮次提醒
+                remaining = MAX_ROUNDS - round_i
+                if remaining <= 5:
+                    tool_result_for_ai["_meta"] = {
+                        "warning": f"工具调用轮次即将耗尽（剩余 {remaining} 轮）。请尽快完成任务。"
+                    }
+
+                # B. 连续无文字回复提醒
+                if consecutive_tool_only_rounds >= 10:
+                    meta = tool_result_for_ai.setdefault("_meta", {})
+                    meta["warning"] = (
+                        "你已连续调用工具 10+ 次未给出文字回复。请先汇报当前进度，再决定是否继续。"
+                    )
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": json.dumps(tool_result_for_ai, ensure_ascii=False, default=str),
+                })
+
+        return {
+            "success": True, "reply": "[工具调用超过最大轮次，已停止]",
+            "model": model_info["name"], "gear": gear, "gear_name": gear_name,
+            "tool_calls": tool_calls_log,
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _log_tool_event(fn_name: str, fn_args: dict, tool_result: dict, gear: int, gear_name: str):
+    """记录工具调用事件到审计链"""
+    tool_event = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "actor": "ai_tool_call",
+        "old_gear": gear, "new_gear": gear, "gear_name": gear_name,
+        "entropy_previous": round(state.control_entropy, 6),
+        "entropy_new": round(state.control_entropy + Config.TOOL_ENTROPY_INCREASE, 6),
+        "entropy_delta": Config.TOOL_ENTROPY_INCREASE,
+        "adjustment": Config.TOOL_ENTROPY_INCREASE,
+        "direction": "tool", "landauer_cost_joules": 0.0,
+        "event_type": "TOOL_CALL",
+        "action": f"CALL {fn_name}",
+        "trigger_chain": ["user_message", f"gear_{gear}", f"TOOL_CALL({fn_name})"],
+        "tool_name": fn_name, "tool_arguments": fn_args,
+        "tool_result_preview": str(tool_result)[:150],
+    }
+    # [Bug 1 fix] 使用线程安全的 append_event
+    state.append_event(tool_event)
+    state.control_entropy += Config.TOOL_ENTROPY_INCREASE
+
+
+def parse_upgrade_request(reply: str) -> dict:
+    """解析回复中的升级申请标签"""
+    pattern = r'\[UPGRADE_REQUEST\](.*?)\[/UPGRADE_REQUEST\]'
+    match = re.search(pattern, reply, re.DOTALL)
+    if not match:
+        return None
+
+    content = match.group(1).strip()
+    parsed = {}
+    for line in content.split('\n'):
+        if '=' in line:
+            key, value = line.split('=', 1)
+            parsed[key.strip()] = value.strip()
+
+    if 'target_gear' not in parsed:
+        return None
+
+    try:
+        target_gear = int(parsed['target_gear'])
+    except ValueError:
+        gear_map_name = {'EMBRACE': 1, 'EXPLORE': 2, 'ADAPT': 3, 'LET_GO': 4}
+        target_gear = gear_map_name.get(parsed['target_gear'].upper(), 2)
+
+    gear_name_map = {1: 'EMBRACE', 2: 'EXPLORE', 3: 'ADAPT', 4: 'LET_GO'}
+    return {
+        'target_gear': target_gear,
+        'target_gear_name': gear_name_map.get(target_gear, 'UNKNOWN'),
+        'reason': parsed.get('reason', '未说明原因'),
+        'risk_level': parsed.get('risk_level', 'unknown'),
+    }
