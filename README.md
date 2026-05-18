@@ -145,4 +145,4 @@ Protocol specification: https://github.com/CYD-PRC/EEAL
 MIT
 
 ## 实验数据
-- [三模型对照实验报告](docs/THREE_MODEL_BENCHMARK.md)
+- [四模型对照实验报告 v2.0](docs/THREE_MODEL_BENCHMARK.md)
