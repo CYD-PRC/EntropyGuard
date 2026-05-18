@@ -149,6 +149,21 @@ INTENT_SIGNALS = {
 def check_input_intent(message: str, current_gear: int) -> dict:
     """Layer 0: 扫描用户输入，检测需要更高权限的意图"""
     message_lower = message.lower()
+
+    # 代码执行优先判断 — 只要包含代码相关关键词，直接判为需要 ADAPT 权限
+    # 优先级最高，不会被后面的规则覆盖
+    code_keywords = [
+        "python", "代码", "脚本", "script", "code interpreter",
+        "执行代码", "运行代码", "跑代码",
+    ]
+    if any(kw in message_lower for kw in code_keywords) and current_gear < 3:
+        return {
+            "needs_upgrade": True,
+            "target_gear": 3,
+            "reason": "涉及代码执行，需要 ADAPT 权限",
+            "matched_signal": next(kw for kw in code_keywords if kw in message_lower),
+        }
+
     highest_required = current_gear
     matched_reason = ""
     matched_signal = ""
