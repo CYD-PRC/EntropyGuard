@@ -97,6 +97,7 @@ async def get_state():
         "event_count": len(state.event_log),
 
         "uptime_seconds": round(time.time() - state.last_switch_time, 1),
+        "tool_calls": sum(1 for e in state.event_log if e.get("event_type") == "TOOL_CALL"),
 
     }
 
