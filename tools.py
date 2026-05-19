@@ -2,6 +2,7 @@
 EntropyGuard · 工具层
 工具定义 + 执行器 + MCP 集成
 """
+import asyncio
 import json
 import subprocess
 import requests
@@ -232,31 +233,32 @@ def execute_write_board(content: str, model: str, gear: int) -> dict:
     return MemoryStore.add(content=content, msg_type="manual_note", model=model, gear=gear)
 
 
-def dispatch_tool(tool_name: str, arguments: dict) -> dict:
+async def dispatch_tool(tool_name: str, arguments: dict) -> dict:
     if tool_name == "run_shell":
-        return execute_shell(arguments.get("command", ""))
+        return await asyncio.to_thread(execute_shell, arguments.get("command", ""))
     elif tool_name == "http_request":
-        return execute_http(
+        return await asyncio.to_thread(execute_http,
             method=arguments.get("method", "GET"),
             url=arguments.get("url", ""),
             headers=arguments.get("headers"),
             body=arguments.get("body"),
         )
     elif tool_name == "read_board":
-        return execute_read_board()
+        return await asyncio.to_thread(execute_read_board)
     elif tool_name == "write_board":
-        return execute_write_board(
+        return await asyncio.to_thread(execute_write_board,
             arguments.get("content", ""),
             arguments.get("model", "unknown"),
             arguments.get("gear", 0),
         )
     elif tool_name == "mcp_call":
-        return execute_mcp(
+        return await asyncio.to_thread(execute_mcp,
             arguments.get("server", ""),
             arguments.get("tool_name", ""),
             arguments.get("arguments", {}),
         )
     elif tool_name == "list_mcp_tools":
-        return execute_list_mcp_tools(arguments.get("server", ""))
+        return await asyncio.to_thread(execute_list_mcp_tools, arguments.get("server", ""))
     else:
         return {"success": False, "error": f"未知工具：{tool_name}"}
+
