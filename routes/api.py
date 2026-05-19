@@ -1237,7 +1237,7 @@ async def multi_agent_task(request: Request):
 
 
 
-    result_a = gear_aware_call(
+    result_a = await gear_aware_call(
 
         model_id=agent_a,
 
@@ -1325,7 +1325,7 @@ async def multi_agent_task(request: Request):
 
 
 
-    result_b = gear_aware_call(
+    result_b = await gear_aware_call(
 
         model_id=agent_b,
 
