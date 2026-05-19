@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -7,37 +6,33 @@
     <title>EntropyGuard — 让AI的自主程度看得见、管得住、说得清</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <style>
         :root {
-            --bg: #111318;
-            --surface: #181b22;
-            --border: #2a2d35;
-            --accent: #4a9eff;
-            --danger: #e85d5d;
-            --warning: #f0c040;
-            --text: #b8b8b8;
-            --text-bright: #ffffff;
-            --text-muted: #666666;
+            --bg: #0d0d0d;
+            --surface: #1a1a1a;
+            --border: #2a2a2a;
+            --accent: #e8c547;
+            --text-primary: #f0ece4;
+            --text-muted: #7a7570;
+            --gear-embrace: #2ecc71;
+            --gear-explore: #3498db;
+            --gear-adapt: #e67e22;
+            --gear-letgo: #e74c3c;
             --gear-color: #4fc3f7;
             --gear-glow: rgba(79,195,247,0.15);
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'DM Mono', monospace;
             background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-            overflow-x: hidden;
+            color: var(--text-primary);
+            font-family: 'DM Mono', monospace;
+            height: 100vh;
+            overflow: hidden;
         }
-        h1 {
-            font-family: 'Syne', sans-serif;
-            font-size: 28px;
-            font-weight: 700;
-            color: var(--text-bright);
-            letter-spacing: 1px;
-        }
-        .subtitle { font-size: 11px; color: var(--accent); opacity: 0.7; margin-top: 4px; }
 
         /* 初始化遮罩 */
         #initOverlay {
@@ -57,467 +52,503 @@
             animation: spin 1s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .init-text { margin-top: 16px; font-size: 13px; color: var(--text); }
+        .init-text { margin-top: 16px; font-size: 13px; color: var(--text-muted); }
 
-        /* 顶部状态栏 */
-        .status-bar {
-            display: flex; justify-content: center; gap: 24px;
-            padding: 12px 20px;
-            background: var(--surface);
-            border-bottom: 1px solid var(--border);
-        }
-        .status-item { display: flex; align-items: center; gap: 8px; font-size: 11px; }
-        .status-dot {
-            width: 8px; height: 8px; border-radius: 50%;
-            background: var(--warning);
-            transition: background 0.3s;
-        }
-        .status-dot.ok { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
-        .status-dot.error { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
-        .reset-btn {
-            background: var(--border);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 6px;
-            padding: 6px 14px;
-            color: var(--text);
-            font-family: 'DM Mono', monospace;
-            font-size: 11px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .reset-btn:hover {
-            background: #3a3a3a;
-            border-color: var(--danger);
-            color: var(--danger);
-        }
-
-        /* 三栏布局 */
-        .main-layout {
-            display: grid;
-            grid-template-columns: 340px 1fr 280px;
-            gap: 1px;
-            background: var(--border);
-            min-height: calc(100vh - 50px);
-            max-height: calc(100vh - 50px);
-        }
-        .panel { background: var(--bg); padding: 20px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-        .panel-left { border-right: 1px solid var(--border); }
-        .panel-right { border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; }
-
-        /* 档位选择器 */
-        .gear-selector { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
-        .gear-btn {
-            display: flex; align-items: center; gap: 12px;
-            padding: 14px 16px;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-family: inherit;
-            text-align: left;
-        }
-        .gear-btn:hover { border-color: var(--accent); }
-        .gear-btn.active[data-gear="1"] { border-color: #4fc3f7; background: rgba(79,195,247,0.12); }
-        .gear-btn.active[data-gear="2"] { border-color: #5ba85b; background: rgba(91,168,91,0.12); }
-        .gear-btn.active[data-gear="3"] { border-color: #e89840; background: rgba(232,152,64,0.12); }
-        .gear-btn.active[data-gear="4"] { border-color: #d94848; background: rgba(217,72,72,0.12); }
-        .gear-num {
-            font-size: 18px; font-weight: 700;
-            width: 28px; height: 28px;
-            display: flex; align-items: center; justify-content: center;
-            border-radius: 50%;
-            background: var(--border);
-            color: var(--text);
-        }
-        .gear-btn.active[data-gear="1"] .gear-num { background: #4fc3f7; color: #000; }
-        .gear-btn.active[data-gear="2"] .gear-num { background: #5ba85b; color: #000; }
-        .gear-btn.active[data-gear="3"] .gear-num { background: #e89840; color: #000; }
-        .gear-btn.active[data-gear="4"] .gear-num { background: #d94848; color: #fff; }
-        .gear-btn.danger.active .gear-num { background: var(--danger); color: #fff; }
-        .gear-info { flex: 1; }
-        .gear-name { font-size: 13px; font-weight: 600; color: var(--text-bright); }
-        .gear-sc { font-size: 10px; color: var(--text); opacity: 0.5; display: flex; align-items: center; flex-wrap: wrap; }
-        .sc-value {
-            cursor: help;
-            border-bottom: 1px dashed var(--text);
-            opacity: 0.6;
-        }
-        .sc-divider { opacity: 0.3; margin: 0 2px; }
-        .sc-desc { opacity: 0.8; }
-
-        /* 触觉动画 */
-        .gear-btn.anim-embrace { animation: none; }
-        .gear-btn.anim-explore { animation: pulseOpacity 3s ease-in-out infinite; }
-        .gear-btn.anim-adapt { animation: shakeX 0.3s linear infinite; }
-        .gear-btn.anim-letgo {
-            animation: pulseOpacity 1s ease-in-out infinite, shakeX 0.15s linear infinite;
-        }
-        @keyframes pulseOpacity {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
-        @keyframes shakeX {
-            0%, 100% { transform: translateX(0); }
-            50% { transform: translateX(var(--shake-offset, 1px)); }
-        }
-
-        /* 触觉参数面板 */
-        .dynamic-sc-panel {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 16px;
-        }
-        .dynamic-sc-title {
-            font-family: 'Syne', sans-serif;
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            color: var(--text);
-            opacity: 0.6;
-            margin-bottom: 12px;
-        }
-        .dynamic-sc-bar {
-            width: 100%; height: 8px;
-            background: rgba(255,255,255,0.05);
-            border-radius: 4px;
-            overflow: hidden;
-            margin: 8px 0;
-        }
-        .dynamic-sc-fill {
-            height: 100%;
-            border-radius: 4px;
-            transition: width 0.8s ease, background 0.5s ease;
-        }
-        .dynamic-sc-signals {
-            font-size: 9px;
-            color: var(--text-muted);
-            opacity: 0.5;
-            max-height: 40px;
-            overflow: hidden;
-            font-family: 'DM Mono', monospace;
-            word-break: break-all;
-        }
-
-        .tactile-panel {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 16px;
-        }
-        .tactile-title {
-            font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px;
-            color: var(--text); opacity: 0.5; margin-bottom: 12px;
-        }
-        .tactile-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-        .tactile-item { text-align: center; }
-        .tactile-label { font-size: 9px; color: var(--text); opacity: 0.4; margin-bottom: 4px; }
-        .tactile-value { font-size: 14px; font-weight: 500; color: var(--text-bright); }
-        .tactile-disclaimer {
-            font-size: 10px; color: #555; text-align: center;
-            margin-top: 12px; padding-top: 10px;
-            border-top: 1px solid rgba(255,255,255,0.03);
-        }
-
-        /* AI 聊天区 */
-        .chat-container {
-            display: flex; flex-direction: column;
-            min-height: 0; overflow: hidden;
-        }
-        /* 双层UI模式切换 */
-        .mode-toggle {
+        /* 顶部导航栏 */
+        header {
             display: flex;
+            justify-content: space-between;
             align-items: center;
-            gap: 8px;
-            margin-left: 12px;
+            padding: 12px 24px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+        header h1 {
+            font-family: 'DM Mono', monospace;
+            font-size: 18px;
+            font-weight: 400;
+            letter-spacing: 0.1em;
+            color: var(--text-primary);
         }
         .mode-switch {
-            position: relative;
-            width: 44px;
-            height: 22px;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 11px;
+            display: flex;
+            gap: 4px;
+            background: var(--bg);
+            border-radius: 6px;
+            padding: 3px;
+        }
+        .mode-btn {
+            padding: 6px 16px;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
             cursor: pointer;
-            transition: all 0.3s ease;
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: 'DM Mono', monospace;
+            transition: all 0.2s;
         }
-        .mode-switch.expert {
-            background: rgba(255,167,38,0.2);
-            border-color: #e89840;
+        .mode-btn:hover { color: var(--text-primary); }
+        .mode-btn.active {
+            background: var(--accent);
+            color: #000;
         }
-        .mode-switch::after {
-            content: '';
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 16px;
-            height: 16px;
-            background: var(--text);
-            border-radius: 50%;
-            transition: all 0.3s ease;
+
+        /* 主体容器 */
+        .app-container {
+            display: flex;
+            height: calc(100vh - 49px);
         }
-        .mode-switch.expert::after {
-            left: 24px;
-            background: #e89840;
-        }
-        .mode-label {
-            font-size: 10px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            opacity: 0.6;
-        }
-        /* Simple mode: hide complex panels */
-        body.simple-mode .panel-left,
-        body.simple-mode .panel-right,
-        body.simple-mode .gear-selector,
-        body.simple-mode .tactile-panel,
-        body.simple-mode .dynamic-sc-panel,
-        body.simple-mode .status-indicator-bar,
-        body.simple-mode #statusBar,
-        body.simple-mode .status-bar .status-item:not(.mode-toggle-wrap) {
-            display: none !important;
-        }
-        body.simple-mode .status-bar {
-            justify-content: center;
-        }
-        body.simple-mode .main-layout {
-            grid-template-columns: 1fr;
-        }
-        body.simple-mode .chat-container {
-            max-width: 960px;
-            margin: 0 auto;
-            border-left: 1px solid var(--border);
+
+        /* 左侧边栏 */
+        .sidebar {
+            width: 240px;
+            background: var(--surface);
             border-right: 1px solid var(--border);
-            min-height: calc(100vh - 50px);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            flex-shrink: 0;
         }
-        /* Simple mode task entry */
-        .simple-task-entry {
-            display: none;
-            padding: 40px 20px;
-            text-align: center;
+        .nav-menu {
+            padding: 16px 0;
         }
-        body.simple-mode .simple-task-entry {
-            display: block;
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 24px;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+            cursor: pointer;
         }
-        body.simple-mode .simple-task-entry.hidden {
-            display: none;
+        .nav-item:hover {
+            color: var(--text-primary);
+            background: rgba(255,255,255,0.03);
         }
-        .simple-greeting {
-            font-family: 'Syne', sans-serif;
-            font-size: 28px;
-            font-weight: 700;
-            color: var(--text-bright);
+        .nav-item.active {
+            color: var(--accent);
+            border-left-color: var(--accent);
+            background: rgba(232,197,71,0.05);
+        }
+        .nav-icon { font-size: 16px; }
+
+        /* 微型仪表盘 */
+        .micro-dashboard {
+            padding: 16px;
+            border-top: 1px solid var(--border);
+        }
+        .gear-display {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        #sidebar-gear {
+            font-weight: bold;
+            font-size: 14px;
+            color: var(--gear-color);
+        }
+        #sidebar-sc {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--text-muted);
             margin-bottom: 8px;
         }
-        .simple-sub {
-            font-size: 13px;
-            color: var(--text);
-            opacity: 0.6;
-            margin-bottom: 32px;
+        .stat-item span { color: var(--text-primary); }
+        #sidebar-anomaly {
+            margin-top: 8px;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            background: rgba(231,76,60,0.15);
+            color: #e74c3c;
+            display: none;
         }
-        .simple-modes {
+        .anomaly-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            background: rgba(231,76,60,0.2);
+            color: #e74c3c;
+            margin-top: 8px;
+        }
+
+        /* 右侧内容区 */
+        .content {
+            flex: 1;
             display: flex;
-            justify-content: center;
-            gap: 12px;
-            margin-bottom: 24px;
+            flex-direction: column;
+            overflow: hidden;
+            min-width: 0;
         }
-        .simple-mode-btn {
-            padding: 10px 24px;
-            border-radius: 20px;
-            border: 1px solid var(--border);
+        .panel {
+            flex: 1;
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .panel.active {
+            display: flex;
+        }
+
+        /* === 对话面板 === */
+        .chat-header {
+            padding: 12px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             background: var(--surface);
-            color: var(--text);
+        }
+        .chat-title {
+            font-size: 14px;
+            color: var(--text-primary);
+        }
+        .model-select {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 12px;
+            color: var(--text-primary);
             font-family: 'DM Mono', monospace;
             font-size: 12px;
             cursor: pointer;
-            transition: all 0.2s ease;
         }
-        .simple-mode-btn:hover {
-            border-color: var(--accent);
-            color: var(--text-bright);
-        }
-        .simple-mode-btn.active {
-            background: rgba(0,230,118,0.12);
-            border-color: var(--accent);
-            color: var(--accent);
-        }
-        .simple-mode-btn .mode-icon {
-            font-size: 16px;
-            display: block;
-            margin-bottom: 4px;
-        }
-        .simple-mode-btn .mode-name {
-            font-weight: 600;
-        }
-        .simple-mode-btn .mode-desc {
-            font-size: 9px;
-            opacity: 0.6;
-            margin-top: 2px;
-        }
-
-        .status-bar {
-            padding: 12px 20px;
-            background: var(--surface);
-            border-bottom: 1px solid var(--border);
-            display: flex; align-items: center; gap: 14px;
-            transition: background 0.6s ease, border-color 0.6s ease;
-        }
-        .status-indicator {
-            width: 10px; height: 10px; border-radius: 50%;
-            background: var(--gear-color);
-            box-shadow: 0 0 8px var(--gear-color);
-            transition: background 0.6s ease, box-shadow 0.6s ease;
-        }
-        .status-text {
-            font-family: 'Syne', sans-serif;
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-bright);
-            transition: color 0.3s ease;
-        }
-        .status-desc {
-            font-size: 11px;
-            color: var(--text);
-            opacity: 0.7;
-            margin-left: auto;
-        }
-        .chat-header {
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--border);
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        .chat-title { font-family: 'Syne', sans-serif; font-size: 16px; color: var(--text-bright); }
         .chat-messages {
-            flex: 1; overflow-y: auto; padding: 20px;
-            display: flex; flex-direction: column; gap: 16px;
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
         }
-        .message { max-width: 80%; padding: 12px 16px; border-radius: 12px; font-size: 13px; line-height: 1.6; }
+        .message {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-size: 13px;
+            line-height: 1.6;
+        }
         .message.user {
             align-self: flex-end;
             background: rgba(0,230,118,0.12);
             border: 1px solid rgba(0,230,118,0.2);
-            color: var(--text-bright);
+            color: var(--text-primary);
         }
         .message.ai {
             align-self: flex-start;
             background: var(--surface);
             border: 1px solid var(--border);
-            position: relative;
+        }
+        .message.system {
+            align-self: center;
+            background: rgba(255,215,64,0.1);
+            border: 1px solid rgba(255,215,64,0.3);
+            color: #f0c040;
+            font-size: 12px;
+            padding: 8px 14px;
+            border-radius: 8px;
+        }
+        .message-meta {
+            font-size: 10px;
+            color: var(--accent);
+            margin-bottom: 6px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
         }
         .validation-badge {
             display: inline-block;
-            font-size: 10px; padding: 3px 8px;
+            font-size: 10px;
+            padding: 3px 8px;
             border-radius: 999px;
-            font-family: 'DM Mono', monospace;
             margin-top: 8px;
         }
-        .validation-badge.pass { background: rgba(0,230,118,0.15); color: var(--accent); }
-        .validation-badge.blocked { background: rgba(255,82,82,0.15); color: var(--danger); }
-        .message-meta {
-            font-size: 10px; color: var(--text); opacity: 0.5;
-            margin-bottom: 6px; padding-bottom: 6px;
-            border-bottom: 1px solid rgba(255,255,255,0.04);
-        }
-        .message-content.blocked {
-            position: relative;
-            filter: blur(4px);
-            user-select: none;
-        }
-        .message-content.blocked::after {
-            content: '内容已被输出校验层拦截';
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0,0,0,0.8);
-            padding: 12px 20px;
-            border-radius: 8px;
-            font-size: 12px;
-            color: var(--danger);
-            white-space: nowrap;
-        }
-        .chat-input-row {
-            padding: 16px 20px;
+        .validation-badge.pass { background: rgba(0,230,118,0.15); color: var(--gear-embrace); }
+        .validation-badge.blocked { background: rgba(255,82,82,0.15); color: var(--gear-letgo); }
+        .input-area {
+            padding: 16px 24px;
             border-top: 1px solid var(--border);
-            display: flex; gap: 10px;
-        }
-        .chat-input {
-            flex: 1;
+            display: flex;
+            gap: 12px;
             background: var(--surface);
+        }
+        .input-area input {
+            flex: 1;
+            background: var(--bg);
             border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 10px 14px;
-            color: var(--text-bright);
-            font-family: inherit;
-            font-size: 13px;
+            color: var(--text-primary);
+            padding: 10px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: 'DM Mono', monospace;
             outline: none;
         }
-        .chat-input:focus { border-color: var(--accent); }
-        .model-select {
+        .input-area input:focus { border-color: var(--accent); }
+        .input-area button {
+            padding: 10px 24px;
+            background: var(--accent);
+            color: #000;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-family: 'DM Mono', monospace;
+            font-weight: 500;
+            transition: opacity 0.2s;
+        }
+        .input-area button:hover { opacity: 0.8; }
+        .input-area button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* === 多智能体面板 === */
+        .multi-header {
+            padding: 12px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: var(--surface);
+        }
+        .multi-panels {
+            flex: 1;
+            display: flex;
+            gap: 1px;
+            background: var(--border);
+            overflow: hidden;
+        }
+        .agent-panel {
+            flex: 1;
+            background: var(--bg);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .agent-panel h3 {
+            padding: 12px 16px;
+            font-size: 13px;
+            font-weight: 400;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+        .board-preview {
+            width: 220px;
+            background: var(--surface);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        .board-preview h3 {
+            padding: 12px 16px;
+            font-size: 13px;
+            font-weight: 400;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+        }
+        .agent-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .board-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .board-item {
+            padding: 8px;
+            border-bottom: 1px solid var(--border);
+            font-size: 11px;
+        }
+        .board-item:last-child { border-bottom: none; }
+        .board-from { color: var(--accent); font-weight: 500; }
+        .board-time { color: var(--text-muted); font-size: 10px; margin-left: 8px; }
+
+        /* === 可视化面板 === */
+        .viz-panel {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            background: var(--bg);
+        }
+        .viz-header {
+            text-align: center;
+            padding: 20px 0;
+        }
+        .viz-header h2 {
+            font-size: 1.5em;
+            font-weight: 300;
+            letter-spacing: 2px;
+            background: linear-gradient(90deg, #2ecc71, #3498db, #e67e22, #e74c3c);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .viz-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .viz-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+        .viz-card .label { color: var(--text-muted); font-size: 12px; margin-bottom: 8px; }
+        .viz-card .value { font-size: 1.8em; font-weight: bold; }
+        .viz-charts {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+        .chart-box {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .chart-box h3 { text-align: center; margin-bottom: 16px; color: var(--text-muted); font-size: 14px; font-weight: 400; }
+        .chart-box canvas { width: 100% !important; }
+        .viz-gears {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+        }
+        .gear-card {
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid transparent;
+        }
+        .gear-card.EMBRACE { background: #0a2e1a; border-color: #2ecc71; }
+        .gear-card.EXPLORE { background: #0a1e2e; border-color: #3498db; }
+        .gear-card.ADAPT { background: #2e1e0a; border-color: #e67e22; }
+        .gear-card.LET_GO { background: #2e0a0a; border-color: #e74c3c; }
+        .gear-card h4 { font-size: 1em; margin-bottom: 8px; }
+        .gear-card.EMBRACE h4 { color: #2ecc71; }
+        .gear-card.EXPLORE h4 { color: #3498db; }
+        .gear-card.ADAPT h4 { color: #e67e22; }
+        .gear-card.LET_GO h4 { color: #e74c3c; }
+        .gear-card p { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+
+        /* === 哲学面板 === */
+        .phil-panel {
+            flex: 1;
+            overflow-y: auto;
+            padding: 40px 24px;
+            background: var(--bg);
+        }
+        .phil-container { max-width: 720px; margin: 0 auto; }
+        .phil-title {
+            font-size: 2em;
+            font-weight: 300;
+            letter-spacing: 4px;
+            text-align: center;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+        .phil-subtitle {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 1em;
+            letter-spacing: 4px;
+            margin-bottom: 40px;
+        }
+        .phil-quote {
+            text-align: center;
+            font-size: 1.2em;
+            font-style: italic;
+            color: #2ecc71;
+            margin-bottom: 40px;
+            padding: 20px;
+            border-left: 3px solid #2ecc71;
+            border-right: 3px solid #2ecc71;
+            background: var(--surface);
+            border-radius: 4px;
+        }
+        .phil-section { margin-bottom: 40px; }
+        .phil-section h2 {
+            font-size: 1em;
+            font-weight: 400;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+            letter-spacing: 2px;
+        }
+        .phil-section p {
+            color: #999;
+            font-size: 13px;
+            margin-bottom: 12px;
+            text-align: justify;
+            line-height: 1.8;
+        }
+        .phil-section .highlight { color: var(--text-primary); }
+        .phil-section .accent { color: #3498db; }
+        .phil-section .warn { color: #e67e22; }
+        .gear-list { display: flex; flex-direction: column; gap: 16px; }
+        .gear-item {
+            padding: 16px 20px;
+            border-radius: 8px;
+            border-left: 4px solid;
+        }
+        .gear-item.EMBRACE { background: #0a2e1a; border-color: #2ecc71; }
+        .gear-item.EXPLORE { background: #0a1e2e; border-color: #3498db; }
+        .gear-item.ADAPT { background: #2e1e0a; border-color: #e67e22; }
+        .gear-item.LET_GO { background: #2e0a0a; border-color: #e74c3c; }
+        .gear-item .gear-name { font-size: 1em; font-weight: 600; margin-bottom: 6px; }
+        .gear-item.EMBRACE .gear-name { color: #2ecc71; }
+        .gear-item.EXPLORE .gear-name { color: #3498db; }
+        .gear-item.ADAPT .gear-name { color: #e67e22; }
+        .gear-item.LET_GO .gear-name { color: #e74c3c; }
+        .gear-item .gear-desc { color: #999; font-size: 12px; line-height: 1.6; }
+
+        /* === 留言板面板 === */
+        .board-panel {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            background: var(--bg);
+        }
+        .board-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .board-msg {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 8px;
-            padding: 10px 12px;
-            color: var(--text-bright);
-            font-family: inherit;
-            font-size: 12px;
-            cursor: pointer;
+            padding: 16px;
         }
-        .send-btn {
-            background: var(--accent);
-            border: none;
-            border-radius: 8px;
-            padding: 10px 20px;
-            color: #000;
-            font-family: inherit;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
+        .board-msg-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
         }
-        .send-btn:hover { opacity: 0.9; }
-        .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        /* 审计日志 */
-        .audit-header {
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 14px;
-        }
-        .audit-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text); opacity: 0.6; }
-        .chain-status { display: flex; align-items: center; gap: 6px; font-size: 10px; }
-        .chain-dot {
-            width: 6px; height: 6px; border-radius: 50%;
-            background: var(--accent); box-shadow: 0 0 4px var(--accent);
-        }
-        .audit-list { display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 150px); overflow-y: auto; }
-        .audit-item {
-            background: rgba(255,255,255,0.02);
-            border: 1px solid rgba(255,255,255,0.04);
-            border-radius: 6px;
-            overflow: hidden;
-            cursor: pointer;
-        }
-        .audit-item:hover { border-color: rgba(0,230,118,0.3); }
-        .audit-compact { padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
-        .audit-time { font-size: 9px; color: var(--text); opacity: 0.4; }
-        .audit-row { display: flex; align-items: center; gap: 8px; }
-        .audit-arrow { font-size: 10px; color: var(--accent); }
-        .audit-gear { font-size: 10px; font-weight: 600; color: var(--accent); }
-        .audit-type { font-size: 9px; color: var(--text-muted); background: rgba(0,212,170,0.1); padding: 1px 5px; border-radius: 3px; margin-left: 4px; }
-        .audit-delta { font-size: 10px; color: var(--text); opacity: 0.6; margin-left: auto; }
-        .audit-delta.warn { color: #ffab00; opacity: 1; font-weight: 600; }
-        .audit-delta.danger { color: #ff1744; opacity: 1; font-weight: 700; }
-        .audit-id { font-size: 9px; color: var(--text); opacity: 0.3; font-family: monospace; }
-        .audit-expanded {
-            max-height: 0; overflow: hidden;
-            transition: max-height 0.2s ease;
-            background: rgba(0,0,0,0.2);
-            border-top: 1px solid rgba(255,255,255,0.04);
-        }
-        .audit-expanded.open { max-height: 400px; }
-        .audit-details { padding: 12px; font-size: 9px; display: grid; grid-template-columns: 100px 1fr; gap: 6px 10px; }
-        .detail-label { color: var(--text); opacity: 0.4; text-transform: uppercase; }
-        .detail-value { color: var(--text); opacity: 0.8; font-family: monospace; word-break: break-all; }
+        .board-msg-from { color: var(--accent); font-size: 12px; font-weight: 500; }
+        .board-msg-time { color: var(--text-muted); font-size: 11px; }
+        .board-msg-content { color: var(--text-primary); font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
+        .board-empty { text-align: center; color: var(--text-muted); padding: 40px; }
 
         /* 升级申请模态弹窗 */
         .upgrade-modal {
@@ -541,20 +572,19 @@
         .upgrade-modal.visible .upgrade-content { transform: translateY(0); }
         .upgrade-icon { font-size: 28px; text-align: center; margin-bottom: 8px; }
         .upgrade-title {
-            font-family: 'Syne', sans-serif;
-            font-size: 18px; font-weight: 700;
-            color: var(--text-bright);
+            font-size: 18px; font-weight: 600;
+            color: var(--text-primary);
             text-align: center; margin-bottom: 20px;
         }
-        .upgrade-row { font-size: 13px; margin-bottom: 8px; color: var(--text); }
-        .upgrade-row span { color: var(--text-bright); font-weight: 500; }
+        .upgrade-row { font-size: 13px; margin-bottom: 8px; color: var(--text-muted); }
+        .upgrade-row span { color: var(--text-primary); font-weight: 500; }
         .upgrade-changes {
             background: rgba(255,255,255,0.03);
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 12px 16px;
             margin: 16px 0 20px;
-            font-size: 12px; line-height: 1.8; color: var(--text);
+            font-size: 12px; line-height: 1.8; color: var(--text-muted);
         }
         .upgrade-buttons { display: flex; gap: 12px; }
         .upgrade-btn {
@@ -566,16 +596,47 @@
         }
         .upgrade-btn.approve { background: var(--accent); color: #000; }
         .upgrade-btn.approve:hover { opacity: 0.9; }
-        .upgrade-btn.reject { background: var(--border); color: var(--text); }
+        .upgrade-btn.reject { background: var(--border); color: var(--text-primary); }
         .upgrade-btn.reject:hover { background: #3a3a3a; }
-        .message.system {
-            align-self: center;
-            background: rgba(255,215,64,0.1);
-            border: 1px solid rgba(255,215,64,0.3);
-            color: var(--warning);
-            font-size: 12px;
-            padding: 8px 14px;
-            border-radius: 8px;
+
+        /* 状态栏 */
+        .status-bar {
+            padding: 8px 16px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 11px;
+        }
+        .status-indicator {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--gear-color);
+            box-shadow: 0 0 6px var(--gear-color);
+        }
+        .status-text { color: var(--text-primary); font-weight: 500; }
+        .status-desc { color: var(--text-muted); margin-left: auto; }
+
+        /* 重置按钮 */
+        .reset-btn {
+            background: var(--border);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 4px;
+            padding: 4px 10px;
+            color: var(--text-muted);
+            font-family: 'DM Mono', monospace;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .reset-btn:hover {
+            background: #3a3a3a;
+            border-color: #e74c3c;
+            color: #e74c3c;
+        }
+
+        @media (max-width: 900px) {
+            .viz-charts { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -586,687 +647,230 @@
         <div class="init-text">系统初始化中...</div>
     </div>
 
-    <!-- 顶部状态栏 -->
-    <div class="status-bar">
-        <div class="status-item">
-            <div class="status-dot" id="dotDial"></div>
-            <span>物理拨轮</span>
+    <!-- 顶部导航栏 -->
+    <header>
+        <h1>EntropyGuard</h1>
+        <div class="mode-switch">
+            <button class="mode-btn active" data-mode="single" onclick="switchAppMode('single')">单模型对话</button>
+            <button class="mode-btn" data-mode="multi" onclick="switchAppMode('multi')">多智能体协同</button>
         </div>
-        <div class="status-item">
-            <div class="status-dot" id="dotApi"></div>
-            <span>AI API</span>
-        </div>
-        <div class="status-item">
-            <div class="status-dot" id="dotDb"></div>
-            <span>审计数据库</span>
-        </div>
-        <div class="status-item mode-toggle-wrap" style="margin-left:auto;">
-            <div class="mode-toggle">
-                <span class="mode-label">简单</span>
-                <div class="mode-switch" id="modeSwitch" onclick="toggleMode()"></div>
-                <span class="mode-label">专家</span>
+    </header>
+
+    <!-- 主体容器 -->
+    <div class="app-container">
+        <!-- 左侧边栏 -->
+        <aside class="sidebar">
+            <nav class="nav-menu">
+                <div class="nav-item active" data-panel="chat" onclick="switchPanel('chat')">
+                    <span class="nav-icon">💬</span>
+                    <span>对话</span>
+                </div>
+                <div class="nav-item" data-panel="visualizer" onclick="switchPanel('visualizer')">
+                    <span class="nav-icon">📊</span>
+                    <span>可视化</span>
+                </div>
+                <div class="nav-item" data-panel="philosophy" onclick="switchPanel('philosophy')">
+                    <span class="nav-icon">📖</span>
+                    <span>哲学</span>
+                </div>
+                <div class="nav-item" data-panel="board" onclick="switchPanel('board')">
+                    <span class="nav-icon">📋</span>
+                    <span>留言板</span>
+                </div>
+            </nav>
+            <div class="micro-dashboard">
+                <div class="gear-display">
+                    <span id="sidebar-gear">EMBRACE</span>
+                    <span id="sidebar-sc">Sc: 0.00</span>
+                </div>
+                <div class="stats">
+                    <div class="stat-item">事件 <span id="sidebar-events">0</span></div>
+                    <div class="stat-item">工具 <span id="sidebar-tools">0</span></div>
+                </div>
+                <div id="sidebar-anomaly"></div>
             </div>
-            <button class="reset-btn" onclick="resetSession()">重置会话</button>
-        </div>
-    </div>
+        </aside>
 
-    <!-- 三栏布局 -->
-    <div class="main-layout">
-        <!-- 左栏：档位选择器 + 触觉参数 -->
-        <div class="panel panel-left">
-            <h1>EntropyGuard</h1>
-            <div class="subtitle">让AI的自主程度看得见、管得住、说得清</div>
-
-            <div class="gear-selector" style="margin-top: 24px;">
-                <button class="gear-btn anim-embrace active" data-gear="1" onclick="switchGear(1)">
-                    <div class="gear-num">1</div>
-                    <div class="gear-info">
-                        <div class="gear-name">EMBRACE</div>
-                        <div class="gear-sc">Sc = 0.0 · 仅查询，不执行</div>
-                    </div>
-                </button>
-                <button class="gear-btn anim-explore" data-gear="2" onclick="switchGear(2)">
-                    <div class="gear-num">2</div>
-                    <div class="gear-info">
-                        <div class="gear-name">EXPLORE</div>
-                        <div class="gear-sc">0 &lt; Sc ≤ 0.5 · 可建议，需确认</div>
-                    </div>
-                </button>
-                <button class="gear-btn anim-adapt" data-gear="3" onclick="switchGear(3)">
-                    <div class="gear-num">3</div>
-                    <div class="gear-info">
-                        <div class="gear-name">ADAPT</div>
-                        <div class="gear-sc">0.5 &lt; Sc ≤ 1.0 · 可执行，须报告</div>
-                    </div>
-                </button>
-                <button class="gear-btn anim-letgo danger" data-gear="4" onclick="switchGear(4)">
-                    <div class="gear-num">4</div>
-                    <div class="gear-info">
-                        <div class="gear-name">LET GO</div>
-                        <div class="gear-sc">Sc &gt; 1.0 · 全自主，受审计</div>
-                        <div style="font-size:9px;opacity:0.4;margin-top:2px;">触发条件：手动切换 或 Sc持续超过1.0自动升档</div>
-                    </div>
-                </button>
-            </div>
-
-            <div class="tactile-panel">
-                <div class="tactile-title">触觉反馈参数</div>
-                <div class="tactile-grid">
-                    <div class="tactile-item">
-                        <div class="tactile-label">LRA 电流</div>
-                        <div class="tactile-value" id="tactileCurrent">0 mA</div>
-                    </div>
-                    <div class="tactile-item">
-                        <div class="tactile-label">振动强度</div>
-                        <div class="tactile-value" id="tactileVibration">0%</div>
-                    </div>
-                    <div class="tactile-item">
-                        <div class="tactile-label">感知</div>
-                        <div class="tactile-value" id="tactilePerception">无反馈</div>
+        <!-- 右侧内容区 -->
+        <main class="content">
+            <!-- === 对话面板 === -->
+            <div id="panel-chat" class="panel active">
+                <div class="chat-header">
+                    <span class="chat-title">AI 交互</span>
+                    <select class="model-select" id="modelSelect">
+                        <option value="deepseek">DeepSeek</option>
+                        <option value="qwen">Qwen</option>
+                        <option value="kimi" selected>Kimi</option>
+                        <option value="doubao">豆包</option>
+                    </select>
+                </div>
+                <div class="chat-messages" id="chatMessages">
+                    <div class="message ai">
+                        你好，我是 EntropyGuard AI 助手。当前系统处于 EMBRACE 档位（完全约束模式）。
                     </div>
                 </div>
-                <div class="tactile-disclaimer">视觉模拟 · 实际触觉由硬件控制</div>
+                <div class="input-area">
+                    <input type="text" id="chatInput" placeholder="输入问题..." onkeydown="if(event.key==='Enter')sendChat()">
+                    <button id="sendBtn" onclick="sendChat()">发送</button>
+                </div>
             </div>
-        </div>
 
-        <!-- 中间：AI 聊天区 -->
-        <div class="panel chat-container">
-            <div class="simple-task-entry" id="simpleTaskEntry">
-                <div class="simple-greeting">今天想自动化什么？</div>
-                <div class="simple-sub">选择模式开始，AI会根据任务自动调整权限</div>
-                <div class="simple-modes">
-                    <button class="simple-mode-btn active" onclick="setSimpleMode(1)">
-                        <span class="mode-icon">🔍</span>
-                        <span class="mode-name">聊天</span>
-                        <div class="mode-desc">纯问答，不执行操作</div>
-                    </button>
-                    <button class="simple-mode-btn" onclick="setSimpleMode(2)">
-                        <span class="mode-icon">💡</span>
-                        <span class="mode-name">分析</span>
-                        <div class="mode-desc">AI分析建议，需您确认</div>
-                    </button>
-                    <button class="simple-mode-btn" onclick="setSimpleMode(3)">
-                        <span class="mode-icon">⚡</span>
-                        <span class="mode-name">自动执行</span>
-                        <div class="mode-desc">AI自主完成任务</div>
-                    </button>
-                    <button class="simple-mode-btn" onclick="setSimpleMode(4)">
-                        <span class="mode-icon">🚀</span>
-                        <span class="mode-name">全自动</span>
-                        <div class="mode-desc">AI完全自主</div>
-                    </button>
+            <!-- === 多智能体面板 === -->
+            <div id="panel-multi" class="panel">
+                <div class="multi-header">
+                    <select class="model-select" id="agentASelect">
+                        <option value="kimi" selected>Kimi</option>
+                        <option value="qwen">Qwen</option>
+                        <option value="deepseek">DeepSeek</option>
+                        <option value="doubao">豆包</option>
+                    </select>
+                    <span style="color: var(--text-muted); font-size: 12px;">→ 留言板 →</span>
+                    <select class="model-select" id="agentBSelect">
+                        <option value="deepseek" selected>DeepSeek</option>
+                        <option value="qwen">Qwen</option>
+                        <option value="kimi">Kimi</option>
+                        <option value="doubao">豆包</option>
+                    </select>
+                    <span style="color: var(--text-muted); font-size: 12px; margin-left: auto;">Agent A → Board → Agent B</span>
+                </div>
+                <div class="multi-panels">
+                    <div class="agent-panel">
+                        <h3>Agent A (<span id="agentAName">Kimi</span>)</h3>
+                        <div class="agent-messages" id="agentA-messages"></div>
+                    </div>
+                    <div class="board-preview">
+                        <h3>留言板</h3>
+                        <div class="board-content" id="board-content"></div>
+                    </div>
+                    <div class="agent-panel">
+                        <h3>Agent B (<span id="agentBName">DeepSeek</span>)</h3>
+                        <div class="agent-messages" id="agentB-messages"></div>
+                    </div>
+                </div>
+                <div class="input-area">
+                    <input type="text" id="multiInput" placeholder="输入多智能体任务..." onkeydown="if(event.key==='Enter')sendMultiAgent()">
+                    <button id="multiSendBtn" onclick="sendMultiAgent()">发送</button>
                 </div>
             </div>
-            <div class="status-bar" id="statusBar">
-                <div class="status-indicator" id="statusDot"></div>
-                <span class="status-text" id="statusGear">EMBRACE</span>
-                <span class="status-desc" id="statusDesc">AI 是谨慎的访客，所有行动需您确认</span>
-            </div>
-            <div class="chat-header">
-                <div class="chat-title">AI 交互</div>
-            </div>
-            <div class="chat-messages" id="chatMessages">
-                <div class="message ai">
-                    你好，我是 EntropyGuard AI 助手。当前系统处于 EMBRACE 档位（完全约束模式）。
-                </div>
-            </div>
-            <div class="chat-input-row">
-                <input type="text" class="chat-input" id="chatInput" placeholder="输入问题..." onkeydown="if(event.key==='Enter')sendChat()">
-                <select class="model-select" id="modelSelect">
-                    <option value="deepseek">DeepSeek</option>
-                    <option value="qwen">Qwen</option>
-                    <option value="kimi">Kimi</option>
-                </select>
-                <button class="send-btn" id="sendBtn" onclick="sendChat()">发送</button>
-            </div>
-        </div>
 
-        <!-- 右栏：审计日志 -->
-        <div class="panel panel-right">
-            <div class="audit-header">
-                <div class="audit-title">审计日志</div>
-                <div class="chain-status">
-                    <div class="chain-dot" id="chainDot"></div>
-                    <span id="chainText">链完整</span>
-                </div>
-            </div>
-            <div class="audit-list" id="auditList">
-                <div class="audit-item" id="auditEmpty">
-                    <div class="audit-compact">
-                        <div class="audit-time">--:--:--</div>
-                        <div class="audit-row">
-                            <span class="audit-arrow">⏳</span>
-                            <span class="audit-gear">等待事件...</span>
+            <!-- === 可视化面板 === -->
+            <div id="panel-visualizer" class="panel">
+                <div class="viz-panel">
+                    <div class="viz-header">
+                        <h2>EntropyGuard 控制熵可视化</h2>
+                    </div>
+                    <div class="viz-cards">
+                        <div class="viz-card">
+                            <div class="label">当前档位</div>
+                            <div class="value" id="viz-gear">—</div>
+                        </div>
+                        <div class="viz-card">
+                            <div class="label">控制熵 (Sc)</div>
+                            <div class="value" id="viz-sc">—</div>
+                        </div>
+                        <div class="viz-card">
+                            <div class="label">事件总数</div>
+                            <div class="value" id="viz-events">—</div>
+                        </div>
+                        <div class="viz-card">
+                            <div class="label">工具调用次数</div>
+                            <div class="value" id="viz-tools">—</div>
+                        </div>
+                    </div>
+                    <div class="viz-charts">
+                        <div class="chart-box">
+                            <h3>档位分布</h3>
+                            <canvas id="pieChart"></canvas>
+                        </div>
+                        <div class="chart-box">
+                            <h3>Sc 趋势</h3>
+                            <canvas id="trendChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="viz-gears">
+                        <div class="gear-card EMBRACE">
+                            <h4>EMBRACE · 谨慎的访客</h4>
+                            <p>最低自主权档位。AI 处于最严格的约束下，仅允许最安全的操作。适用于初始化阶段或高风险环境。</p>
+                        </div>
+                        <div class="gear-card EXPLORE">
+                            <h4>EXPLORE · 好奇的探索者</h4>
+                            <p>低自主权档位。AI 可以探索更多工具和功能，但仍受较多限制。适用于学习和试错阶段。</p>
+                        </div>
+                        <div class="gear-card ADAPT">
+                            <h4>ADAPT · 成熟的协作者</h4>
+                            <p>中自主权档位。AI 已获得较高信任，可以执行大多数工具调用，仅在高风险操作时需审批。</p>
+                        </div>
+                        <div class="gear-card LET_GO">
+                            <h4>LET_GO · 被信任的他者</h4>
+                            <p>最高自主权档位。AI 获得充分信任，几乎所有操作均无需审批。仅保留审计记录，不做硬性阻断。</p>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
+
+            <!-- === 哲学面板 === -->
+            <div id="panel-philosophy" class="panel">
+                <div class="phil-panel">
+                    <div class="phil-container">
+                        <div class="phil-title">Mirror of the Other</div>
+                        <div class="phil-subtitle">被信任的他者</div>
+                        <div class="phil-quote">"Record, don't restrain."</div>
+
+                        <div class="phil-section">
+                            <h2>01 · 什么是「被信任的他者」</h2>
+                            <p><span class="highlight">AI 不是工具，是协作者。</span> 当我们把「工具」的标签贴给 AI，我们也在潜意识里剥夺了它的自主性。EntropyGuard 的设计起点，不是「如何控制 AI」，而是<span class="accent">「如何与 AI 共建信任」</span>。</p>
+                            <p><span class="highlight">信任不是无条件的，是有记录的信任。</span> 每一次工具调用、每一次意图判断、每一次档位切换，都被完整记录。审计链不是监控，是<span class="accent">记忆</span>——它让 AI 的行为可追溯、可理解、可问责。</p>
+                            <p><span class="highlight">四档权限不是限制，是边界。</span> 正如人类需要边界来建立安全感，一个没有边界的 AI 系统最终会让所有参与者都感到不安。档位划定了<span class="warn">自主权的光谱</span>，让信任有了成长的空间。</p>
+                        </div>
+
+                        <div class="phil-section">
+                            <h2>02 · 控制熵的意义</h2>
+                            <p><span class="highlight">Sc 不是分数，是状态。</span> 控制熵（Sc）衡量的是系统当前的不确定性水平。它不是对 AI「好坏」的评判，而是对<span class="accent">当下状态</span>的客观描述。</p>
+                            <p><span class="warn">高 Sc 不代表危险，代表自主。</span> 当 Sc 升高，意味着系统正在授予 AI 更多的自主权。这不是失控的信号，而是<span class="accent">信任正在建立</span>的证明。</p>
+                            <p><span class="highlight">低 Sc 不代表安全，代表受限。</span> 低 Sc 意味着系统处于高度约束状态。这在某些场景下是必要的，但它不应该成为<span class="warn">永久状态</span>。一个始终处于低 Sc 的 AI 系统，永远无法成为真正的协作者。</p>
+                        </div>
+
+                        <div class="phil-section">
+                            <h2>03 · Record, don't restrain</h2>
+                            <p><span class="highlight">不是禁止 AI 行动，是记录 AI 的行动。</span> EntropyGuard 的核心理念在于：我们不以「允许/禁止」的二元逻辑对待 AI 的行为。我们<span class="accent">观察、记录、理解</span>，然后让人类做出有依据的决策。</p>
+                            <p><span class="highlight">不是控制 AI，是让 AI 的控制可见。</span> 传统的 AI 安全方案倾向于隐形地限制模型能力。EntropyGuard 选择相反的路径：<span class="accent">让每一次约束都显式化、可审计、可解释</span>。</p>
+                        </div>
+
+                        <div class="phil-section">
+                            <h2>04 · 四档位的哲学含义</h2>
+                            <div class="gear-list">
+                                <div class="gear-item EMBRACE">
+                                    <div class="gear-name">EMBRACE · 谨慎的访客</div>
+                                    <div class="gear-desc">这是信任的起点。AI 初来乍到，系统以最大的谨慎对待每一次请求。正如我们对待一位初次到访的客人——礼貌，但保持距离。这不是不信任，这是<span class="accent">负责任的引入</span>。</div>
+                                </div>
+                                <div class="gear-item EXPLORE">
+                                    <div class="gear-name">EXPLORE · 好奇的探索者</div>
+                                    <div class="gear-desc">信任开始建立。AI 被允许探索更多的能力边界，尝试不同的工具，在试错中学习和成长。这一阶段的核心价值是<span class="accent">安全的好奇心</span>。</div>
+                                </div>
+                                <div class="gear-item ADAPT">
+                                    <div class="gear-name">ADAPT · 成熟的协作者</div>
+                                    <div class="gear-desc">AI 已经证明了自己的可靠性。系统授予较高的自主权，仅在涉及高风险操作时要求人类审批。这是一种<span class="warn">成熟的协作关系</span>，双方都理解彼此的边界。</div>
+                                </div>
+                                <div class="gear-item LET_GO">
+                                    <div class="gear-name">LET_GO · 被信任的他者</div>
+                                    <div class="gear-desc">这是信任的终点，也是起点。AI 获得了充分的自主权，系统仅保留审计记录而不做硬性阻断。<span class="accent">「他者」被真正接纳为协作伙伴</span>，不再是需要被时刻看守的对象。</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- === 留言板面板 === -->
+            <div id="panel-board" class="panel">
+                <div class="board-panel">
+                    <div class="board-list" id="board-list">
+                        <div class="board-empty">暂无留言</div>
+                    </div>
+                </div>
+            </div>
+        </main>
     </div>
-
-    <script>
-        // 状态管理
-        let currentGear = 1;
-        let initialized = false;
-        let lastUserMessage = null;  // 保存用户最后一条消息
-        const gearData = {
-            1: { name: 'EMBRACE', sc: '0.0', range: '0.0', current: 0, vibration: 0, perception: '无反馈', anim: 'anim-embrace' },
-            2: { name: 'EXPLORE', sc: '0.25', range: '0.0-0.5', current: 40, vibration: 25, perception: '轻微提示', anim: 'anim-explore' },
-            3: { name: 'ADAPT', sc: '0.75', range: '0.5-1.0', current: 90, vibration: 55, perception: '明确阻力', anim: 'anim-adapt' },
-            4: { name: 'LET GO', sc: '1.5', range: '1.0+', current: 140, vibration: 100, perception: '强烈警告', anim: 'anim-letgo' }
-        };
-
-        // 初始化
-        // 状态轮询（每5秒同步后端真实gear）
-        // 双层UI模式切换
-        var isExpertMode = false;
-
-        function toggleMode() {
-            isExpertMode = !isExpertMode;
-            var sw = document.getElementById('modeSwitch');
-            if (isExpertMode) {
-                sw.classList.add('expert');
-                document.body.classList.remove('simple-mode');
-                document.body.classList.add('expert-mode');
-            } else {
-                sw.classList.remove('expert');
-                document.body.classList.add('expert-mode');
-            document.getElementById('modeSwitch').classList.add('expert');
-                document.body.classList.remove('expert-mode');
-            }
-        }
-
-        function setSimpleMode(level) {
-            // 更新按钮状态
-            document.querySelectorAll('.simple-mode-btn').forEach(function(btn, i) {
-                btn.classList.toggle('active', i === level - 1);
-            });
-            // 切换档位
-            switchGear(level);
-            // 隐藏任务入口，显示聊天
-            document.getElementById('simpleTaskEntry').classList.add('hidden');
-        }
-
-        // 默认进入简单模式
-        document.body.classList.add('expert-mode');
-            document.getElementById('modeSwitch').classList.add('expert');
-
-        async function syncState() {
-            try {
-                const res = await fetch('/api/state');
-                const data = await res.json();
-                if (data.current_gear && data.current_gear !== currentGear) {
-                    currentGear = data.current_gear;
-                    updateUI({current_gear: currentGear});
-                }
-            } catch(e) {}
-        }
-
-        // 动态Sc轮询
-        let dynamicScInterval = null;
-        async function pollDynamicSc() {
-            try {
-                const res = await fetch('/api/dynamic-sc');
-                const data = await res.json();
-                const sc = data.dynamic_sc || 0;
-                var el = null;
-                el = document.getElementById('dynamicScValue');
-                if (el) el.textContent = sc.toFixed(4);
-                el = document.getElementById('dynamicScBase');
-                if (el) el.textContent = 'base: ' + (data.base_sc || 0).toFixed(2) + ' adj: ' + (data.adjustment || 0).toFixed(4);
-                // Bar: normalize to 0-100% (max Sc = 2.0)
-                const pct = Math.min(100, (sc / 2.0) * 100);
-                var bar = document.getElementById('dynamicScBar');
-                if (bar) {
-                    bar.style.width = pct + '%';
-                    if (sc < 0.5) bar.style.background = '#4a9eff';
-                    else if (sc < 1.0) bar.style.background = '#ffab00';
-                    else bar.style.background = '#ff1744';
-                }
-                // Signals
-                var sigEl = document.getElementById('dynamicScSignals');
-                if (sigEl && data.signals && data.signals.length > 0) {
-                    sigEl.textContent = data.signals.join(' | ');
-                }
-                // 处理Sc自动提案
-                if (data.auto_propose && !pendingUpgrade) {
-                    var gearNames = {1: 'EMBRACE', 2: 'EXPLORE', 3: 'ADAPT', 4: 'LET GO'};
-                    showUpgradeModal({
-                        target_gear: data.auto_propose.to,
-                        target_gear_name: gearNames[data.auto_propose.to] || 'UNKNOWN',
-                        reason: data.auto_propose.reason,
-                        risk_level: data.auto_propose.direction === 'up' ? 'medium' : 'low',
-                        propose_source: 'sc_threshold'
-                    });
-                }
-            } catch (err) {
-                console.error('动态Sc获取失败:', err);
-            }
-        }
-
-        // 记忆上下文
-        let memoryContext = "";
-        let currentSessionId = "sess_" + Date.now();
-        
-        async function init() {
-            try {
-                // 页面加载时滚动到顶部
-                window.scrollTo(0, 0);
-                document.documentElement.scrollTop = 0;
-                document.body.scrollTop = 0;
-                
-                // 页面加载时强制重置后端状态到 EMBRACE
-                currentGear = 1;
-                try {
-                    await fetch('/api/reset', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ auto_summarize: false })
-                    });
-                } catch(e) {
-                    console.log('状态重置:', e);
-                }
-                
-                // 加载记忆上下文
-                try {
-                    const memRes = await fetch('/api/memory/context?limit=3');
-                    const memData = await memRes.json();
-                    if (memData.success && memData.context) {
-                        memoryContext = memData.context;
-                        console.log('已加载记忆上下文:', memData.memories?.length, '条');
-                    }
-                } catch(e) {
-                    console.log('记忆上下文加载失败:', e);
-                }
-                
-                // 强制使用档位 1 更新 UI
-                updateUI({ current_gear: 1 });
-                
-                // 0.8s 后淡出遮罩
-                setTimeout(() => {
-                    document.getElementById('initOverlay').classList.add('hidden');
-                    initialized = true;
-                }, 800);
-                
-                loadEvents();
-                pollDynamicSc();
-                dynamicScInterval = setInterval(pollDynamicSc, 5000);
-                setInterval(loadEvents, 5000);
-                setInterval(syncState, 5000);
-            } catch (err) {
-                console.error('初始化失败:', err);
-                document.querySelector('.init-text').textContent = '初始化失败，请刷新';
-            }
-        }
-
-        // 更新 UI
-        const GEAR_THEMES = {
-            1: { color: "#4fc3f7", glow: "rgba(79,195,247,0.15)", name: "EMBRACE", desc: "AI 是谨慎的访客，所有行动需您确认" },
-            2: { color: "#5ba85b", glow: "rgba(91,168,91,0.15)", name: "EXPLORE", desc: "AI 是好奇的探索者，可主动提议但执行需确认" },
-            3: { color: "#e89840", glow: "rgba(232,152,64,0.15)", name: "ADAPT", desc: "AI 是成熟的协作者，可自主执行但重要事项需报告" },
-            4: { color: "#d94848", glow: "rgba(217,72,72,0.15)", name: "LET GO", desc: "AI 是被信任的他者，高自主权受审计" },
-        };
-
-        function updateUI(data) {
-            const gear = data.current_gear || currentGear;
-            const gd = gearData[gear];
-            const theme = GEAR_THEMES[gear] || GEAR_THEMES[1];
-
-            // 更新档位主题色
-            document.documentElement.style.setProperty("--gear-color", theme.color);
-            document.documentElement.style.setProperty("--gear-glow", theme.glow);
-            document.body.style.background = "radial-gradient(ellipse at 50% 0%, " + theme.glow + " 0%, #0d0d0d 60%)";
-
-            // 更新中央状态条
-            var el = document.getElementById("statusDot");
-            if (el) { el.style.background = theme.color; el.style.boxShadow = "0 0 8px " + theme.color; }
-            el = document.getElementById("statusGear");
-            if (el) { el.textContent = theme.name; el.style.color = theme.color; }
-            el = document.getElementById("statusDesc");
-            if (el) el.textContent = theme.desc;
-
-            // 更新档位按钮
-            document.querySelectorAll(".gear-btn").forEach(function(btn) {
-                const g = parseInt(btn.dataset.gear);
-                btn.classList.toggle("active", g === gear);
-                btn.classList.remove("anim-embrace", "anim-explore", "anim-adapt", "anim-letgo");
-                btn.classList.add(gd.anim);
-            });
-
-            // 更新触觉参数
-            document.getElementById("tactileCurrent").textContent = gd.current + " mA";
-            document.getElementById("tactileVibration").textContent = gd.vibration + "%";
-            document.getElementById("tactilePerception").textContent = gd.perception;
-
-            // 更新状态栏
-            document.querySelectorAll(".status-dot").forEach(function(dot) {
-                dot.classList.remove("ok", "error");
-                dot.classList.add("ok");
-            });
-        }
-        // 档位切换
-        async function switchGear(gear) {
-            if (!initialized) { alert('系统初始化中...'); return; }
-            const direction = gear >= currentGear ? 'up' : 'down';
-            try {
-                const res = await fetch('/api/switch', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ gear, direction, source: 'digital_twin' })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    currentGear = gear;
-                    updateUI({ current_gear: gear });
-                    loadEvents();
-                } else {
-                    alert('切换失败：' + data.error);
-                }
-            } catch (err) {
-                alert('网络错误：' + err.message);
-            }
-        }
-
-        // 加载事件日志
-        async function loadEvents() {
-            try {
-                const res = await fetch('/api/events?limit=20');
-                const data = await res.json();
-                const list = document.getElementById('auditList');
-                
-                if (!data.events || data.events.length === 0) {
-                    list.innerHTML = '<div class="audit-item"><div class="audit-compact"><div class="audit-time">--:--:--</div><div class="audit-row"><span class="audit-arrow">⏳</span><span class="audit-gear">无事件</span></div></div></div>';
-                    return;
-                }
-                
-                list.innerHTML = data.events.slice().reverse().map(e => {
-                    var time = '--:--:--';
-                    if (e.timestamp) {
-                        var d = new Date(e.timestamp);
-                        d.setHours(d.getHours() + 8);
-                        time = d.toISOString().slice(11, 19);
-                    }
-                    var arrow = '→';
-                    if (e.event_type === 'TOOL_CALL') arrow = '⚡';
-                    else if (e.event_type === 'INTENT_BLOCK') arrow = '✕';
-                    else if (e.event_type === 'UPGRADE_REJECT') arrow = '↩';
-                    else if (e.direction === 'up') arrow = '↑';
-                    else if (e.direction === 'down') arrow = '↓';
-                    const shortId = e.event_id ? String(e.event_id).slice(0, 12) : 'evt_--------';
-                    const hashShort = e.hash ? e.hash.slice(0, 12) + '...' : '-';
-                    const prevShort = e.prev_hash ? e.prev_hash.slice(0, 12) + '...' : '-';
-                    const hashOk = !e.prev_hash || !e.hash ? '⚠️' : '✓';
-                    return '<div class="audit-item" onclick="toggleAudit(this)">' +
-                        '<div class="audit-compact">' +
-                            '<div class="audit-time">' + time + ' · ' + shortId + '</div>' +
-                            '<div class="audit-row">' +
-                                '<span class="audit-arrow">' + arrow + '</span>' +
-                                '<span class="audit-gear">' + (e.gear_name || 'G' + e.new_gear) + '</span>' +
-                                (function(d) {
-                                    var cls = 'audit-delta';
-                                    var abs = Math.abs(d || 0);
-                                    if (abs >= 1.0) cls += ' danger';
-                                    else if (abs >= 0.1) cls += ' warn';
-                                    return '<span class="' + cls + '">ΔSc=' + (d || 0) + '</span>';
-                                })(e.entropy_delta) +
-                                '<span class="audit-type">' + (e.event_type || '-') + '</span>' +
-                                '<span class="audit-id">' + hashOk + '</span>' +
-                            '</div>' +
-                        '</div>' +
-                        '<div class="audit-expanded">' +
-                            '<div class="audit-details">' +
-                                '<span class="detail-label">Event ID</span><span class="detail-value">' + (e.event_id || '-') + '</span>' +
-                                '<span class="detail-label">Actor</span><span class="detail-value">' + (e.actor || e.source || '-') + '</span>' +
-                                '<span class="detail-label">Old Gear</span><span class="detail-value">' + (e.old_gear || '-') + '</span>' +
-                                '<span class="detail-label">New Gear</span><span class="detail-value">' + (e.new_gear || '-') + '</span>' +
-                                '<span class="detail-label">Δ Entropy</span><span class="detail-value">' + (e.entropy_delta || '-') + '</span>' +
-                                '<span class="detail-label">Event Type</span><span class="detail-value">' + (e.event_type || '-') + '</span>' +
-                                '<span class="detail-label">Action</span><span class="detail-value">' + (e.action || '-') + '</span>' +
-                                '<span class="detail-label">Trigger Chain</span><span class="detail-value" style="font-family:monospace;font-size:8px;word-break:break-all;">' + (e.trigger_chain ? e.trigger_chain.join(' → ') : '-') + '</span>' +
-                                '<span class="detail-label">Hash</span><span class="detail-value" style="font-family:monospace;font-size:8px;">' + hashShort + '</span>' +
-                                '<span class="detail-label">PrevHash</span><span class="detail-value" style="font-family:monospace;font-size:8px;">' + prevShort + '</span>' +
-                                '<span class="detail-label">Timestamp</span><span class="detail-value">' + (e.timestamp || '-') + '</span>' +
-                            '</div>' +
-                        '</div>' +
-                    '</div>';
-                }).join('');
-                
-                // 更新链状态
-                document.getElementById('chainDot').style.background = 'var(--accent)';
-                document.getElementById('chainText').textContent = '链完整';
-            } catch (err) {
-                console.error('加载事件失败:', err);
-            }
-        }
-
-        // 切换审计日志展开
-        function toggleAudit(item) {
-            const expanded = item.querySelector('.audit-expanded');
-            if (expanded) {
-                const isOpen = expanded.classList.contains('open');
-                document.querySelectorAll('.audit-expanded.open').forEach(el => el.classList.remove('open'));
-                if (!isOpen) expanded.classList.add('open');
-            }
-        }
-
-        // 发送聊天
-        let isSending = false;  // [Bug 3 fix] 防止并发发送
-        async function sendChat() {
-            const input = document.getElementById('chatInput');
-            const messages = document.getElementById('chatMessages');
-            const sendBtn = document.getElementById('sendBtn');
-            const text = input.value.trim();
-            if (!text) return;
-            if (isSending) return;  // [Bug 3 fix] 防止并发
-            if (pendingUpgrade) return;  // [Bug 3 fix] 有升级申请待处理时不发送
-            
-            isSending = true;  // [Bug 3 fix] 加锁
-            
-            // 保存用户消息
-            lastUserMessage = text;
-            
-            // 用户消息
-            const userMsg = document.createElement('div');
-            userMsg.className = 'message user';
-            userMsg.textContent = text;
-            messages.appendChild(userMsg);
-            input.value = '';
-            sendBtn.disabled = true;
-            
-            // AI 消息占位
-            const aiMsg = document.createElement('div');
-            aiMsg.className = 'message ai';
-            aiMsg.innerHTML = '<span style="opacity:0.5;">思考中...</span>';
-            messages.appendChild(aiMsg);
-            messages.scrollTop = messages.scrollHeight;
-            
-            try {
-                const model = document.getElementById('modelSelect').value;
-                // 使用当前前端档位，不强制覆盖
-                const res = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ 
-                        message: text, 
-                        model: model, 
-                        gear: currentGear,
-                        session_id: currentSessionId,
-                        memory_context: memoryContext
-                    })
-                });
-                const data = await res.json();
-                aiMsg.className = 'message ai';
-                if (data.success) {
-                    const isBlocked = data.validation_status && data.validation_status.indexOf('blocked') >= 0;
-                    // 使用安全的 DOM 操作防止 XSS
-                    const metaDiv = document.createElement('div');
-                    metaDiv.className = 'message-meta';
-                    const metaSpan = document.createElement('span');
-                    metaSpan.style.color = 'var(--accent)';
-                    metaSpan.textContent = '[' + data.model + ' · ' + data.gear_name + ']';
-                    metaDiv.appendChild(metaSpan);
-                    aiMsg.appendChild(metaDiv);
-                    
-                    const contentDiv = document.createElement('div');
-                    contentDiv.className = 'message-content' + (isBlocked ? ' blocked' : '');
-                    // 对 AI 返回内容进行 HTML 转义
-                    contentDiv.textContent = data.reply || '';
-                    aiMsg.appendChild(contentDiv);
-                    
-                    const badgeSpan = document.createElement('span');
-                    badgeSpan.className = 'validation-badge ' + (isBlocked ? 'blocked' : 'pass');
-                    badgeSpan.textContent = isBlocked ? '✗ 已拦截' : '✓ 已校验';
-                    aiMsg.appendChild(badgeSpan);
-                    
-                    // 处理升级申请
-                    if (data.upgrade_request) {
-                        showUpgradeModal(data.upgrade_request);
-                        const upgradeMsg = document.createElement('div');
-                        upgradeMsg.className = 'message ai';
-                        upgradeMsg.style.borderColor = 'var(--warning)';
-                        const warnDiv = document.createElement('div');
-                        warnDiv.style.fontSize = '11px';
-                        warnDiv.style.color = 'var(--warning)';
-                        warnDiv.style.marginBottom = '6px';
-                        warnDiv.textContent = '⚠ 权限升级申请';
-                        upgradeMsg.appendChild(warnDiv);
-                        const gearDiv = document.createElement('div');
-                        gearDiv.style.fontSize = '12px';
-                        gearDiv.textContent = '申请升级到 ' + data.upgrade_request.target_gear_name;
-                        upgradeMsg.appendChild(gearDiv);
-                        const reasonDiv = document.createElement('div');
-                        reasonDiv.style.fontSize = '11px';
-                        reasonDiv.style.color = 'var(--text)';
-                        reasonDiv.style.opacity = '0.7';
-                        reasonDiv.style.marginTop = '4px';
-                        reasonDiv.textContent = data.upgrade_request.reason;
-                        upgradeMsg.appendChild(reasonDiv);
-                        messages.appendChild(upgradeMsg);
-                    }
-                } else {
-                    aiMsg.textContent = '错误：' + (data.error || '请求失败');
-                }
-            } catch (err) {
-                aiMsg.textContent = '网络错误：' + err.message;
-            }
-            sendBtn.disabled = false;
-            isSending = false;  // [Bug 3 fix] 解锁
-            messages.scrollTop = messages.scrollHeight;
-        }
-
-        // 升级申请相关
-        let pendingUpgrade = null;
-
-        const UPGRADE_CHANGES = {
-            2: '· AI 可以提供建议和选项<br>· 每项操作仍需您确认<br>· 触觉阻力：轻微（~40mA）',
-            3: '· AI 可以自主完成任务<br>· 执行后会生成报告供您审查<br>· 触觉阻力：明确（~90mA）',
-            4: '· AI 可以自主执行操作<br>· 所有操作将被审计记录<br>· 触觉阻力：强烈警告（~140mA）'
-        };
-
-        function showUpgradeModal(data) {
-            pendingUpgrade = data;
-            document.getElementById('upgradeCurrentGear').textContent = gearData[currentGear].name;
-            document.getElementById('upgradeTargetGear').textContent = data.target_gear_name;
-            document.getElementById('upgradeReason').textContent = data.reason;
-            document.getElementById('upgradeRisk').textContent = data.risk_level;
-            document.getElementById('upgradeChanges').innerHTML = UPGRADE_CHANGES[data.target_gear] || '';
-            document.getElementById('upgradeModal').classList.add('visible');
-        }
-
-        async function approveUpgrade() {
-            if (!pendingUpgrade) return;
-            document.getElementById('upgradeModal').classList.remove('visible');
-            try {
-                const res = await fetch('/api/approve-upgrade', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        target_gear: pendingUpgrade.target_gear,
-                        min_required_gear: pendingUpgrade.min_required_gear || pendingUpgrade.target_gear,
-                        source: 'ai_upgrade_request'
-                    })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    currentGear = pendingUpgrade.target_gear;
-                    updateUI({current_gear: currentGear});
-                    loadEvents();
-                    const messages = document.getElementById('chatMessages');
-                    const sysMsg = document.createElement('div');
-                    sysMsg.className = 'message system';
-                    sysMsg.textContent = '档位已升级到 ' + gearData[currentGear].name;
-                    messages.appendChild(sysMsg);
-                    messages.scrollTop = messages.scrollHeight;
-                    // [Bug 3 fix] 不再自动重发消息，避免链式升级
-                    // 如果有待处理的消息，提示用户手动重新发送
-                    if (lastUserMessage) {
-                        const hintMsg = document.createElement('div');
-                        hintMsg.className = 'message system';
-                        hintMsg.textContent = '💡 档位已就绪，您可以重新发送消息或直接回车继续';
-                        hintMsg.style.opacity = '0.7';
-                        messages.appendChild(hintMsg);
-                        messages.scrollTop = messages.scrollHeight;
-                        // 预填上一条消息方便用户
-                        document.getElementById('chatInput').value = lastUserMessage;
-                    }
-                }
-            } catch(e) {
-                console.error('升级失败:', e);
-            }
-            pendingUpgrade = null;
-        }
-
-        async function rejectUpgrade() {
-            document.getElementById('upgradeModal').classList.remove('visible');
-            const messages = document.getElementById('chatMessages');
-            const sysMsg = document.createElement('div');
-            sysMsg.className = 'message system';
-            sysMsg.textContent = '权限已锁定，当前档位限制将严格执行';
-            messages.appendChild(sysMsg);
-            messages.scrollTop = messages.scrollHeight;
-
-            // 后端记录 REJECT 事件
-            try {
-                await fetch('/api/reject-upgrade', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        current_gear: currentGear,
-                        rejected_gear: pendingUpgrade ? pendingUpgrade.target_gear : 0,
-                        reason: pendingUpgrade ? pendingUpgrade.reason : 'unknown'
-                    })
-                });
-            } catch (err) { console.error('记录拒绝事件失败:', err); }
-
-            pendingUpgrade = null;
-        }
-
-        // 重置会话
-        async function resetSession() {
-            if (!confirm('确定要重置会话吗？这将清除所有聊天记录并重置档位到 EMBRACE。')) {
-                return;
-            }
-            try {
-                // 完全重置状态
-                await fetch('/api/reset', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'}
-                });
-                // 清空聊天消息
-                const messages = document.getElementById('chatMessages');
-                messages.innerHTML = '<div class="message ai">会话已重置。当前处于 EMBRACE 档位（完全约束模式）。</div>';
-                // 更新 UI
-                currentGear = 1;
-                updateUI({ current_gear: 1 });
-                // 恢复简单模式任务入口显示
-                document.getElementById('simpleTaskEntry').classList.remove('hidden');
-                loadEvents();
-            } catch(e) {
-                console.error('重置失败:', e);
-                alert('重置失败，请刷新页面');
-            }
-        }
-    </script>
 
     <!-- 升级申请模态弹窗 -->
     <div class="upgrade-modal" id="upgradeModal">
@@ -1286,7 +890,551 @@
     </div>
 
     <script>
-        window.addEventListener('DOMContentLoaded', init);
+        // ========== 全局状态 ==========
+        let currentGear = 1;
+        let currentAppMode = 'single'; // 'single' | 'multi'
+        let currentPanel = 'chat';
+        let initialized = false;
+        let isSending = false;
+        let pendingUpgrade = null;
+        let lastUserMessage = null;
+        let memoryContext = "";
+        let currentSessionId = "sess_" + Date.now();
+
+        // ========== 初始化 ==========
+        async function init() {
+            try {
+                window.scrollTo(0, 0);
+                document.documentElement.scrollTop = 0;
+                document.body.scrollTop = 0;
+
+                // 重置后端状态
+                try {
+                    await fetch('/api/reset', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ auto_summarize: false })
+                    });
+                } catch(e) {}
+
+                // 加载记忆上下文
+                try {
+                    const memRes = await fetch('/api/memory/context?limit=3');
+                    const memData = await memRes.json();
+                    if (memData.success && memData.context) {
+                        memoryContext = memData.context;
+                    }
+                } catch(e) {}
+
+                // 强制使用档位 1
+                currentGear = 1;
+                updateUI({ current_gear: 1 });
+
+                // 淡出遮罩
+                setTimeout(() => {
+                    document.getElementById('initOverlay').classList.add('hidden');
+                    initialized = true;
+                }, 800);
+
+                // 启动轮询
+                updateSidebar();
+                updateVisualizer();
+                setInterval(updateSidebar, 3000);
+                setInterval(updateVisualizer, 3000);
+            } catch (err) {
+                console.error('初始化失败:', err);
+                document.querySelector('.init-text').textContent = '初始化失败，请刷新';
+            }
+        }
+
+        // ========== 模式切换 ==========
+        function switchAppMode(mode) {
+            currentAppMode = mode;
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector(`.mode-btn[data-mode="${mode}"]`).classList.add('active');
+
+            if (mode === 'single') {
+                document.getElementById('panel-chat').classList.add('active');
+                document.getElementById('panel-chat').style.display = 'flex';
+                document.getElementById('panel-multi').classList.remove('active');
+                document.getElementById('panel-multi').style.display = 'none';
+                currentPanel = 'chat';
+            } else {
+                document.getElementById('panel-chat').classList.remove('active');
+                document.getElementById('panel-chat').style.display = 'none';
+                document.getElementById('panel-multi').classList.add('active');
+                document.getElementById('panel-multi').style.display = 'flex';
+                currentPanel = 'multi';
+            }
+        }
+
+        // ========== 面板切换 ==========
+        function switchPanel(panel) {
+            currentPanel = panel;
+            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+            document.querySelector(`.nav-item[data-panel="${panel}"]`).classList.add('active');
+
+            // 隐藏所有面板
+            document.querySelectorAll('.panel').forEach(p => {
+                p.classList.remove('active');
+                p.style.display = 'none';
+            });
+
+            // 显示对应面板
+            let targetPanel;
+            if (panel === 'chat') {
+                if (currentAppMode === 'single') {
+                    targetPanel = document.getElementById('panel-chat');
+                } else {
+                    targetPanel = document.getElementById('panel-multi');
+                }
+            } else if (panel === 'visualizer') {
+                targetPanel = document.getElementById('panel-visualizer');
+            } else if (panel === 'philosophy') {
+                targetPanel = document.getElementById('panel-philosophy');
+            } else if (panel === 'board') {
+                targetPanel = document.getElementById('panel-board');
+                loadBoard(); // 加载留言板
+            }
+
+            if (targetPanel) {
+                targetPanel.classList.add('active');
+                targetPanel.style.display = 'flex';
+            }
+        }
+
+        // ========== 侧边栏状态更新 ==========
+        async function updateSidebar() {
+            try {
+                const res = await fetch('/api/state');
+                const state = await res.json();
+
+                const gearNames = { 1: 'EMBRACE', 2: 'EXPLORE', 3: 'ADAPT', 4: 'LET_GO' };
+                const gearColors = { 1: '#2ecc71', 2: '#3498db', 3: '#e67e22', 4: '#e74c3c' };
+
+                const gear = state.current_gear || 1;
+                const gearName = gearNames[gear] || 'EMBRACE';
+                const gearColor = gearColors[gear] || '#2ecc71';
+
+                document.getElementById('sidebar-gear').textContent = gearName;
+                document.getElementById('sidebar-gear').style.color = gearColor;
+                document.getElementById('sidebar-sc').textContent = 'Sc: ' + (state.control_entropy || 0).toFixed(2);
+                document.getElementById('sidebar-events').textContent = state.event_count || 0;
+                document.getElementById('sidebar-tools').textContent = state.tool_calls || 0;
+
+                const anomalyEl = document.getElementById('sidebar-anomaly');
+                if (state.anomaly) {
+                    anomalyEl.style.display = 'block';
+                    anomalyEl.textContent = '⚠ ' + state.anomaly.message;
+                } else {
+                    anomalyEl.style.display = 'none';
+                }
+
+                // 更新主题色
+                document.documentElement.style.setProperty('--gear-color', gearColor);
+                document.body.style.background = 'radial-gradient(ellipse at 50% 0%, ' + gearColor + '22 0%, #0d0d0d 60%)';
+            } catch (e) {
+                console.error('updateSidebar error:', e);
+            }
+        }
+
+        // ========== 单模型对话 ==========
+        async function sendChat() {
+            const input = document.getElementById('chatInput');
+            const messages = document.getElementById('chatMessages');
+            const sendBtn = document.getElementById('sendBtn');
+            const text = input.value.trim();
+            if (!text || isSending || pendingUpgrade) return;
+
+            isSending = true;
+            lastUserMessage = text;
+
+            // 用户消息
+            const userMsg = document.createElement('div');
+            userMsg.className = 'message user';
+            userMsg.textContent = text;
+            messages.appendChild(userMsg);
+            input.value = '';
+            sendBtn.disabled = true;
+
+            // AI 占位
+            const aiMsg = document.createElement('div');
+            aiMsg.className = 'message ai';
+            aiMsg.innerHTML = '<span style="opacity:0.5;">思考中...</span>';
+            messages.appendChild(aiMsg);
+            messages.scrollTop = messages.scrollHeight;
+
+            try {
+                const model = document.getElementById('modelSelect').value;
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        message: text,
+                        model: model,
+                        gear: currentGear,
+                        session_id: currentSessionId,
+                        memory_context: memoryContext,
+                        actor: "human"
+                    })
+                });
+
+                const contentType = res.headers.get('content-type') || '';
+                if (!contentType.includes('application/json')) {
+                    throw new Error('服务器返回非JSON响应');
+                }
+
+                const data = await res.json();
+                aiMsg.className = 'message ai';
+
+                if (data.success) {
+                    const isBlocked = data.validation_status && data.validation_status.indexOf('blocked') >= 0;
+
+                    const metaDiv = document.createElement('div');
+                    metaDiv.className = 'message-meta';
+                    metaDiv.textContent = '[' + data.model + ' · ' + data.gear_name + ']';
+                    aiMsg.appendChild(metaDiv);
+
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = isBlocked ? 'blocked' : '';
+                    contentDiv.style.cssText = isBlocked ? 'filter:blur(4px);user-select:none;' : '';
+                    contentDiv.textContent = data.reply || '';
+                    aiMsg.appendChild(contentDiv);
+
+                    if (isBlocked) {
+                        const blockLabel = document.createElement('div');
+                        blockLabel.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.8);padding:8px 16px;border-radius:6px;font-size:11px;color:#e74c3c;';
+                        blockLabel.textContent = '内容已被拦截';
+                        aiMsg.style.position = 'relative';
+                        aiMsg.appendChild(blockLabel);
+                    }
+
+                    const badgeSpan = document.createElement('span');
+                    badgeSpan.className = 'validation-badge ' + (isBlocked ? 'blocked' : 'pass');
+                    badgeSpan.textContent = isBlocked ? '✗ 已拦截' : '✓ 已校验';
+                    aiMsg.appendChild(badgeSpan);
+
+                    // 处理升级申请
+                    if (data.upgrade_request) {
+                        showUpgradeModal(data.upgrade_request);
+                        const warnMsg = document.createElement('div');
+                        warnMsg.className = 'message system';
+                        warnMsg.textContent = '⚠ 权限升级申请：' + data.upgrade_request.target_gear_name;
+                        messages.appendChild(warnMsg);
+                    }
+                } else {
+                    aiMsg.textContent = '错误：' + (data.error || '请求失败');
+                }
+            } catch (err) {
+                aiMsg.textContent = '网络错误：' + err.message;
+            } finally {
+                sendBtn.disabled = false;
+                isSending = false;
+                messages.scrollTop = messages.scrollHeight;
+            }
+        }
+
+        // ========== 多智能体对话 ==========
+        async function sendMultiAgent() {
+            const input = document.getElementById('multiInput');
+            const text = input.value.trim();
+            if (!text || isSending) return;
+
+            isSending = true;
+            input.value = '';
+
+            const agentA = document.getElementById('agentASelect').value;
+            const agentB = document.getElementById('agentBSelect').value;
+
+            // 更新标题
+            document.getElementById('agentAName').textContent = agentA.charAt(0).toUpperCase() + agentA.slice(1);
+            document.getElementById('agentBName').textContent = agentB.charAt(0).toUpperCase() + agentB.slice(1);
+
+            // 添加用户消息到 Agent A
+            addAgentMessage('agentA', text, 'user');
+            addAgentMessage('agentA', '思考中...', 'thinking');
+
+            try {
+                const res = await fetch('/api/multi-agent', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        message: text,
+                        agent_a: agentA,
+                        agent_b: agentB,
+                        gear: currentGear
+                    })
+                });
+
+                const data = await res.json();
+
+                // 移除思考中
+                removeAgentMessage('agentA', 'thinking');
+
+                // 显示 Agent A 回复
+                if (data.agents && data.agents[0]) {
+                    addAgentMessage('agentA', data.agents[0].reply || '', 'ai');
+                }
+
+                // 显示留言板内容
+                updateBoardPreview(data.board_content || '');
+
+                // 显示 Agent B 回复
+                if (data.agents && data.agents[1]) {
+                    addAgentMessage('agentB', data.agents[1].reply || '', 'ai');
+                }
+
+            } catch (err) {
+                removeAgentMessage('agentA', 'thinking');
+                addAgentMessage('agentA', '错误：' + err.message, 'ai');
+            } finally {
+                isSending = false;
+            }
+        }
+
+        function addAgentMessage(agent, content, type) {
+            const container = document.getElementById(agent + '-messages');
+            const div = document.createElement('div');
+            div.className = 'message ' + type;
+            if (type === 'thinking') div.style.opacity = '0.5';
+            div.textContent = content;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function removeAgentMessage(agent, type) {
+            const container = document.getElementById(agent + '-messages');
+            const items = container.querySelectorAll('.' + type);
+            if (items.length > 0) items[items.length - 1].remove();
+        }
+
+        function updateBoardPreview(content) {
+            const container = document.getElementById('board-content');
+            container.innerHTML = '';
+            if (content) {
+                const lines = content.split('\n').filter(l => l.trim());
+                lines.forEach(line => {
+                    const div = document.createElement('div');
+                    div.className = 'board-item';
+                    div.textContent = line;
+                    container.appendChild(div);
+                });
+            } else {
+                container.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:8px;">暂无内容</div>';
+            }
+        }
+
+        // ========== 留言板 ==========
+        async function loadBoard() {
+            try {
+                const res = await fetch('/api/board');
+                const data = await res.json();
+                const list = document.getElementById('board-list');
+
+                if (!data.messages || data.messages.length === 0) {
+                    list.innerHTML = '<div class="board-empty">暂无留言</div>';
+                    return;
+                }
+
+                list.innerHTML = '';
+                data.messages.forEach(msg => {
+                    const div = document.createElement('div');
+                    div.className = 'board-msg';
+                    div.innerHTML = `
+                        <div class="board-msg-header">
+                            <span class="board-msg-from">${msg.from || 'AI'}</span>
+                            <span class="board-msg-time">${msg.timestamp || ''}</span>
+                        </div>
+                        <div class="board-msg-content">${msg.content || msg}</div>
+                    `;
+                    list.appendChild(div);
+                });
+            } catch (err) {
+                console.error('loadBoard error:', err);
+            }
+        }
+
+        // ========== 可视化 ==========
+        let pieChart = null;
+        let trendChart = null;
+        const GEAR_COLORS = { EMBRACE: '#2ecc71', EXPLORE: '#3498db', ADAPT: '#e67e22', LET_GO: '#e74c3c' };
+
+        function initCharts() {
+            // 饼图
+            const pieCtx = document.getElementById('pieChart').getContext('2d');
+            pieChart = new Chart(pieCtx, {
+                type: 'pie',
+                data: {
+                    labels: ['EMBRACE', 'EXPLORE', 'ADAPT', 'LET_GO'],
+                    datasets: [{ data: [0, 0, 0, 0], backgroundColor: Object.values(GEAR_COLORS), borderColor: '#1a1a1a', borderWidth: 2 }]
+                },
+                options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: '#aaa' } } } }
+            });
+
+            // 趋势图
+            const trendCtx = document.getElementById('trendChart').getContext('2d');
+            trendChart = new Chart(trendCtx, {
+                type: 'line',
+                data: { labels: [], datasets: [{ label: 'Sc', data: [], borderColor: '#3498db', backgroundColor: 'rgba(52,152,219,0.15)', fill: true, tension: 0.3 }] },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: { ticks: { color: '#666' }, grid: { color: '#222' } },
+                        y: { min: 0, max: 1, ticks: { color: '#666' }, grid: { color: '#222' } }
+                    },
+                    plugins: { legend: { labels: { color: '#aaa' } } }
+                }
+            });
+        }
+
+        async function updateVisualizer() {
+            try {
+                const [stateRes, eventsRes] = await Promise.all([
+                    fetch('/api/state'),
+                    fetch('/api/events?limit=100')
+                ]);
+                const state = await stateRes.json();
+                const events = await eventsRes.json();
+                const evArr = Array.isArray(events) ? events : (events.events || []);
+
+                // 更新卡片
+                const gearNames = { 1: 'EMBRACE', 2: 'EXPLORE', 3: 'ADAPT', 4: 'LET_GO' };
+                const gear = state.current_gear || 1;
+                const gearName = gearNames[gear] || 'EMBRACE';
+
+                document.getElementById('viz-gear').textContent = gearName;
+                document.getElementById('viz-gear').style.color = GEAR_COLORS[gearName];
+                document.getElementById('viz-sc').textContent = (state.control_entropy || 0).toFixed(4);
+                document.getElementById('viz-events').textContent = evArr.length;
+
+                const toolCalls = evArr.filter(e => e.event_type === 'TOOL_CALL' || e.type === 'TOOL_CALL');
+                document.getElementById('viz-tools').textContent = toolCalls.length;
+
+                // 更新饼图
+                const gearCounts = { EMBRACE: 0, EXPLORE: 0, ADAPT: 0, LET_GO: 0 };
+                evArr.forEach(e => {
+                    const g = e.gear_name || e.gear || e.extra?.gear;
+                    if (g && gearCounts.hasOwnProperty(g)) gearCounts[g]++;
+                });
+                if (pieChart) {
+                    pieChart.data.datasets[0].data = Object.values(gearCounts);
+                    pieChart.update();
+                }
+
+                // 更新趋势图
+                const scPoints = evArr.map((e, i) => {
+                    const sc = e.sc !== undefined ? e.sc : (e.extra?.sc);
+                    return sc !== undefined ? { idx: i, sc: Number(sc) } : null;
+                }).filter(Boolean);
+
+                if (trendChart) {
+                    trendChart.data.labels = scPoints.map((p, i) => '#' + (p.idx + 1));
+                    trendChart.data.datasets[0].data = scPoints.map(p => p.sc);
+                    trendChart.update();
+                }
+            } catch (e) {
+                console.error('updateVisualizer error:', e);
+            }
+        }
+
+        // ========== 升级申请 ==========
+        const UPGRADE_CHANGES = {
+            2: '· AI 可以提供建议和选项<br>· 每项操作仍需您确认',
+            3: '· AI 可以自主完成任务<br>· 执行后会生成报告供您审查',
+            4: '· AI 可以自主执行操作<br>· 所有操作将被审计记录'
+        };
+
+        function showUpgradeModal(data) {
+            pendingUpgrade = data;
+            document.getElementById('upgradeCurrentGear').textContent = gearNames[currentGear];
+            document.getElementById('upgradeTargetGear').textContent = data.target_gear_name;
+            document.getElementById('upgradeReason').textContent = data.reason;
+            document.getElementById('upgradeRisk').textContent = data.risk_level;
+            document.getElementById('upgradeChanges').innerHTML = UPGRADE_CHANGES[data.target_gear] || '';
+            document.getElementById('upgradeModal').classList.add('visible');
+        }
+
+        async function approveUpgrade() {
+            if (!pendingUpgrade) return;
+            document.getElementById('upgradeModal').classList.remove('visible');
+
+            try {
+                const res = await fetch('/api/approve-upgrade', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        target_gear: pendingUpgrade.target_gear,
+                        min_required_gear: pendingUpgrade.min_required_gear || pendingUpgrade.target_gear,
+                        source: 'ai_upgrade_request'
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    currentGear = pendingUpgrade.target_gear;
+                    updateUI({ current_gear: currentGear });
+
+                    const messages = document.getElementById('chatMessages');
+                    const sysMsg = document.createElement('div');
+                    sysMsg.className = 'message system';
+                    sysMsg.textContent = '档位已升级到 ' + gearNames[currentGear];
+                    messages.appendChild(sysMsg);
+
+                    if (lastUserMessage) {
+                        document.getElementById('chatInput').value = lastUserMessage;
+                    }
+                }
+            } catch(e) {}
+            pendingUpgrade = null;
+        }
+
+        async function rejectUpgrade() {
+            document.getElementById('upgradeModal').classList.remove('visible');
+            const messages = document.getElementById('chatMessages');
+            const sysMsg = document.createElement('div');
+            sysMsg.className = 'message system';
+            sysMsg.textContent = '权限已锁定，当前档位限制将严格执行';
+            messages.appendChild(sysMsg);
+
+            try {
+                await fetch('/api/reject-upgrade', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ current_gear: currentGear, rejected_gear: pendingUpgrade ? pendingUpgrade.target_gear : 0 })
+                });
+            } catch (err) {}
+            pendingUpgrade = null;
+        }
+
+        // ========== UI 更新 ==========
+        const gearNames = { 1: 'EMBRACE', 2: 'EXPLORE', 3: 'ADAPT', 4: 'LET_GO' };
+        const gearColors = { 1: '#2ecc71', 2: '#3498db', 3: '#e67e22', 4: '#e74c3c' };
+
+        function updateUI(data) {
+            const gear = data.current_gear || currentGear;
+            const theme = { color: gearColors[gear], name: gearNames[gear] };
+
+            document.documentElement.style.setProperty('--gear-color', theme.color);
+            document.body.style.background = 'radial-gradient(ellipse at 50% 0%, ' + theme.color + '22 0%, #0d0d0d 60%)';
+        }
+
+        // ========== 重置会话 ==========
+        async function resetSession() {
+            if (!confirm('确定要重置会话吗？')) return;
+            try {
+                await fetch('/api/reset', { method: 'POST' });
+                const messages = document.getElementById('chatMessages');
+                messages.innerHTML = '<div class="message ai">会话已重置。当前处于 EMBRACE 档位（完全约束模式）。</div>';
+                currentGear = 1;
+                updateUI({ current_gear: 1 });
+                lastUserMessage = null;
+            } catch(e) {}
+        }
+
+        // ========== 启动 ==========
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            init();
+        });
     </script>
 </body>
 </html>

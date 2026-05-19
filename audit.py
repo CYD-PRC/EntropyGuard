@@ -32,6 +32,7 @@ class FerrymanState:
         # [Bug 3 fix] 消息去重缓存
         self._recent_messages = {}  # hash -> timestamp
         self._load_events()
+        self.pending_proposal = None  # [Fix] switch confirm
 
     def calculate_entropy(self, gear: int) -> float:
         return self.BASE_SC.get(gear, 0.0)
