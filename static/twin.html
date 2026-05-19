@@ -1345,7 +1345,7 @@
             messages.scrollTop = messages.scrollHeight;
 
             try {
-                const model = document.getElementById('modelSelect').value;
+                const el = document.getElementById('modelSelectNav'); const model = el ? el.value : 'kimi';
                 const res = await fetch('/api/chat', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -1423,8 +1423,10 @@
             isSending = true;
             input.value = '';
 
-            const agentA = document.getElementById('agentASelect').value;
-            const agentB = document.getElementById('agentBSelect').value;
+            const elA = document.getElementById('agentASelect');
+            const elB = document.getElementById('agentBSelect');
+            const agentA = elA ? elA.value : 'kimi';
+            const agentB = elB ? elB.value : 'deepseek';
 
             // 更新标题
             document.getElementById('agentAName').textContent = agentA.charAt(0).toUpperCase() + agentA.slice(1);
@@ -1718,4 +1720,5 @@
     </script>
 </body>
 </html>
+
 
