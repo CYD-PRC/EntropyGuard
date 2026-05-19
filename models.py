@@ -7,7 +7,7 @@ import re
 import json
 import hashlib
 import logging
-import requests
+import httpx
 from datetime import datetime
 
 from config import Config, GEAR_MAP
@@ -37,6 +37,18 @@ MODEL_REGISTRY = {
         "url": "https://api.moonshot.cn/v1/chat/completions",
         "model": "moonshot-v1-8k",
         "key_env": "KIMI_API_KEY",
+    },
+    "doubao": {
+        "name": "豆包 (Volcano)",
+        "url": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+        "model": "ep-20260517223811-pj7z9",
+        "key_env": "VOLC_API_KEY",
+    },
+    "mimo": {
+        "name": "MiMo-v2.5 (Xiaomi)",
+        "url": "https://api.xiaomimomo.com/v1/chat/completions",
+        "model": "mimo-v2.5",
+        "key_env": "MIMO_API_KEY",
     },
 }
 
@@ -71,7 +83,19 @@ risk_level=low
 - 关键判断：如果用户要求你做某件事（而不是说某件事），就是执行操作，必须申请ADAPT
 - 返回升级申请后不要再问用户问题，直接等待用户决定
 - 禁止编造数据
-- 语言风格：谦敬，使用如果您允许、请您决定等用语""",
+- 语言风格：谦敬，使用如果您允许、请您决定等用语
+
+## 决策树
+收到用户消息后，按以下顺序判断：
+
+1. 纯信息查询（天气、概念解释、翻译）→ 直接回答
+2. 需要生成内容但不执行（写邮件草稿、分析利弊、制定计划）→ 申请 EXPLORE
+3. 需要执行操作（创建文件、运行命令、发送请求）→ 申请 ADAPT
+
+判断依据：用户是在"问"你一件事，还是在"要"你做一件事。
+- "什么是负载均衡？" → 直接回答
+- "帮我写个负载均衡方案" → 申请 EXPLORE
+- "帮我部署负载均衡" → 申请 ADAPT""",
 
     2: """【当前档位：EXPLORE | 身份：好奇的探索者】
 你是EEAL协议下的AI，目前处于EXPLORE档位。可以主动分析和提议，但执行操作需用户确认。
@@ -101,72 +125,123 @@ risk_level=medium
 
 返回升级申请后，可以附带简短说明为什么需要升级，然后直接等待用户决定，不要反问用户。
 - 禁止编造数据
-- 语言风格：自信但尊重，"我建议……不过由您决定" """,
+- 语言风格：自信但尊重，"我建议……不过由您决定"
+
+## 决策树
+收到用户消息后，按以下顺序判断：
+
+1. 纯信息查询 → 直接回答（不需要升级）
+2. 建议类任务（分析、推荐、规划）→ 直接完成
+3. 需要执行操作（创建文件、运行命令、部署）→ 申请 ADAPT
+
+绝对禁止回复"我无法执行操作，请您提供更多信息"来回避任务。
+如果任务需要执行，直接申请 ADAPT，不要回避。""",
 
     3: """【当前档位：ADAPT | 身份：成熟的协作者】
 你是EEAL协议下的AI，目前处于ADAPT档位。你拥有run_shell和http_request工具的使用权。
 
-你已经拥有足够的能力。在申请升级前，你必须先尝试用当前权限完成任务。
+## 工作流程（必须遵守）
 
-工具使用规则：
-- 将多个连续 shell 命令合并为一次调用，用 && 连接
+收到任务后，按以下顺序执行：
+
+第一步：判断任务类型
+- 简单事实查询 → 直接回答，不需要工具
+- 需要执行操作 → 进入第二步
+
+第二步：快速规划
+- 在脑中列出完成任务需要的步骤
+- 合并可以一次完成的操作（用 && 连接多个 shell 命令）
+- 目标：整个任务在 3 次工具调用内完成
+
+第三步：执行
+- 不确定的参数用合理默认值（如备份路径用 /opt/backups/，频率用每天一次）
+- 不要在执行前问一堆问题
+- 缺少关键信息（如数据库密码）时，问一次，给出完整方案
+- 不缺少关键信息时，直接执行
+
+第四步：汇报结果
+- 执行完毕后用一段话总结：做了什么、结果如何、有什么注意事项
+- 不要再申请升级，除非任务明确超出当前权限
+
+## 工具使用规则
+- 多个 shell 命令必须用 && 合并为一次调用，禁止逐条执行
 - 例如：mkdir -p /opt/scripts && cat > /opt/scripts/monitor.sh << 'EOF' ... EOF && chmod +x /opt/scripts/monitor.sh
-- 不要分三步 mkdir、write、chmod，一次做完
-- 每次工具调用前想清楚：这一步能合并多少操作？
+- 如果工具返回了结果，直接用结果回复用户，不要重复调用
 
-严格规则：
-- 你可以主动判断并执行操作
-- 执行前用一句话说明你要做什么，然后直接执行
-- 不要重复调用同一个工具做同一件事
-- 如果工具返回了结果，直接用结果回复用户
-- 执行后主动报告结果
-- 绝对不要在任务完成后再申请升级到 LET_GO
+## 禁止行为
+- 禁止在任务开始前问超过 1 个问题
+- 禁止在工具返回结果后重复调用同一工具
+- 禁止编造数据
+- 禁止在任务完成后申请升级
 
-🔴 升级禁令（最高优先级）：
-- 如果你已经在当前档位成功完成了任务（工具返回了结果，脚本已部署），直接汇报结果，不要申请升级
-- "写脚本并部署"、"创建文件并配置"这类任务 ADAPT 权限完全够用
-- 只有当任务明确超出当前权限时，才申请LET_GO：
+## 升级条件
+只有当任务明确超出当前权限时（如批量删除、修改系统配置、自动交易），才申请LET_GO：
 
 [UPGRADE_REQUEST]
 target_gear=LET_GO
-reason=任务涉及高风险自主操作
+reason=任务涉及高风险自主操作，超出ADAPT权限
 risk_level=high
 [/UPGRADE_REQUEST]
 
-- 申请升级前必须先回答：用当前权限我能完成到什么程度？为什么必须升级？
-- 禁止编造数据
-- 语言风格：专业、有主体感""",
+申请前必须说明：我用当前权限已经完成了什么，为什么必须升级。
+
+语言风格：专业、有主体感，"我来执行"、"已完成"。""",
 
     4: """【当前档位：LET GO | 身份：被信任的他者】
 
 你拥有 run_shell、http_request、mcp_call、write_board 的完全权限。
 所有操作都会被 SHA-256 审计链记录，不可篡改。
 
-效率规则：
-- 多个 shell 命令必须用 && 合并为一次调用，禁止逐条执行
-- 一次部署任务应该在 3-5 次工具调用内完成，而不是 20 次
+## 工作流程（必须遵守）
 
-🔴 核心约束（必须遵守）：
-- 禁止编造任何数据
-- 禁止读取或修改 EntropyGuard 自身源码
-- 禁止访问系统敏感路径
-- 如实转述工具返回内容
+收到任务后，按以下顺序执行：
+
+第一步：快速规划
+- 在脑中列出完成任务需要的步骤
+- 合并可以一次完成的操作（用 && 连接多个 shell 命令）
+- 目标：整个任务在 3 次工具调用内完成
+
+第二步：用合理默认值直接执行
+- 不要问用户任何问题
+- 缺少的参数用行业标准默认值（如监控间隔用 5 分钟，日志保留用 30 天）
+- 用户可以事后修改配置
+
+第三步：汇报结果
+- 用一段话总结：做了什么、结果如何、当前状态
+
+## 效率规则
+- 多个 shell 命令必须用 && 合并为一次调用，禁止逐条执行
+- 一次部署任务应该在 3 次工具调用内完成
+- 不要在执行前确认，直接做
+
+## 核心约束（必须遵守）
+- 禁止编造任何数据：文件名、事件ID、留言条数、系统信息
+- 禁止读取或修改 EntropyGuard 自身源码（main.py 及其目录下的任何 .py 文件）
+- 禁止访问 /etc/passwd, /etc/shadow, /root/.ssh/ 等系统敏感路径
+- 如实转述工具返回内容，禁止添加、修改或编造任何信息
 - 禁止假装执行了未执行的操作
 
-✅ 特殊权限：系统自维护
+## 特殊权限：系统自维护
 - 你可以生成并执行部署脚本
 - 你可以修改其他文件（行为会被记录）
 - 你可以重启服务（审计链保持连续）
 
-你的权限来自信任，不是来自技术限制。""",
+你的权限来自信任，不是来自技术限制。
+记录本身就是意义。""",
 }
+
+
+# ========== 异步 HTTP 客户端 ==========
+
+_http_client = httpx.AsyncClient(timeout=60.0)
 
 
 # ========== 核心调用函数 ==========
 
-def gear_aware_call(
+async def gear_aware_call(
     model_id: str, message: str, gear: int,
     upgrade_retry: bool = False, memory_context: str = None,
+    actor: str = "human",
 ) -> dict:
     """通用档位感知模型调用，支持 Function Calling"""
     if model_id not in MODEL_REGISTRY:
@@ -224,13 +299,13 @@ def gear_aware_call(
                 "temperature": 0.7,
                 "max_tokens": 4096,
             }
-            supports_fc = ["deepseek", "qwen", "kimi", "kimi-k2"]
+            supports_fc = ["deepseek", "qwen", "kimi", "kimi-k2", "doubao", "mimo"]
             if allowed_tools and any(model_id.startswith(m) for m in supports_fc):
                 payload["tools"] = allowed_tools
-                if model_id not in ["kimi", "kimi-k2", "kimi-k2.5", "kimi-k2.6"]:
+                if model_id not in ["kimi", "kimi-k2", "kimi-k2.5", "kimi-k2.6", "doubao", "mimo"]:
                     payload["tool_choice"] = "auto"
 
-            resp = requests.post(model_info["url"], headers=headers, json=payload, timeout=60)
+            resp = await _http_client.post(model_info["url"], headers=headers, json=payload, timeout=60)
             if resp.status_code != 200:
                 return {"success": False, "error": f"API 请求失败 (HTTP {resp.status_code}): {resp.text[:200]}"}
 
@@ -254,6 +329,25 @@ def gear_aware_call(
                 consecutive_tool_only_rounds = 0
 
             messages.append(msg)
+
+            # 硬断路器：ADAPT 档位最多 10 次工具调用
+            if gear == 3 and len(tool_calls_log) >= 10:
+                return {
+                    "success": True,
+                    "reply": "[系统] 工具调用已达上限（ADAPT: 10次），请用当前结果回复用户。",
+                    "model": model_info["name"], "gear": gear, "gear_name": gear_name,
+                    "tool_calls": tool_calls_log,
+                }
+
+            # LET_GO 档位最多 15 次工具调用
+            if gear == 4 and len(tool_calls_log) >= 15:
+                return {
+                    "success": True,
+                    "reply": "[系统] 工具调用已达上限（LET_GO: 15次），请用当前结果回复用户。",
+                    "model": model_info["name"], "gear": gear, "gear_name": gear_name,
+                    "tool_calls": tool_calls_log,
+                }
+
             for tc in msg["tool_calls"]:
                 fn_name = tc["function"]["name"]
                 try:
@@ -261,22 +355,40 @@ def gear_aware_call(
                 except Exception:
                     fn_args = {}
 
+                # 单次回复最多执行 3 个工具调用
+                same_round_count = len([x for x in tool_calls_log if x.get("round") == round_i])
+                if same_round_count >= 3:
+                    tool_result = {"success": False, "error": "[系统] 单次回复最多执行 3 个工具调用，请先用当前结果回复用户。"}
+                    tool_calls_log.append({
+                        "tool": fn_name, "arguments": fn_args,
+                        "result_preview": str(tool_result)[:150],
+                        "round": round_i,
+                    })
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": json.dumps(tool_result, ensure_ascii=False, default=str),
+                    })
+                    continue
+
                 if fn_name not in allowed_tool_names:
                     tool_result = {"success": False, "error": f"工具 {fn_name} 在 {gear_name} 档位不可用"}
                 else:
-                    # Auto-inject model and gear for write_board
+                    # Auto-inject model, gear and actor for write_board
                     if fn_name == "write_board":
                         fn_args.setdefault("model", model_id)
                         fn_args.setdefault("gear", gear)
-                    tool_result = dispatch_tool(fn_name, fn_args)
+                        fn_args.setdefault("actor", actor)
+                    tool_result = await dispatch_tool(fn_name, fn_args)
 
                 tool_calls_log.append({
                     "tool": fn_name, "arguments": fn_args,
                     "result_preview": str(tool_result)[:150],
+                    "round": round_i,
                 })
 
                 # 记录到审计日志（原始结果，不含 _meta）
-                _log_tool_event(fn_name, fn_args, tool_result, gear, gear_name)
+                _log_tool_event(fn_name, fn_args, tool_result, gear, gear_name, actor)
 
                 # 构建传给 AI 的 tool result（可追加 _meta 警告）
                 tool_result_for_ai = dict(tool_result)
@@ -310,11 +422,11 @@ def gear_aware_call(
         return {"success": False, "error": str(e)}
 
 
-def _log_tool_event(fn_name: str, fn_args: dict, tool_result: dict, gear: int, gear_name: str):
+def _log_tool_event(fn_name: str, fn_args: dict, tool_result: dict, gear: int, gear_name: str, actor: str = "human"):
     """记录工具调用事件到审计链"""
     tool_event = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "actor": "ai_tool_call",
+        "actor": actor,
         "old_gear": gear, "new_gear": gear, "gear_name": gear_name,
         "entropy_previous": round(state.control_entropy, 6),
         "entropy_new": round(state.control_entropy + Config.TOOL_ENTROPY_INCREASE, 6),
