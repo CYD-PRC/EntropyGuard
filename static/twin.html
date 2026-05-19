@@ -97,7 +97,7 @@
         /* 主体容器 */
         .app-container {
             display: flex;
-            height: calc(100vh - 49px);
+            height: calc(100vh - 49px - 36px); /* 49px header + 36px footer */
         }
 
         /* 左侧边栏 */
@@ -599,23 +599,25 @@
         .upgrade-btn.reject { background: var(--border); color: var(--text-primary); }
         .upgrade-btn.reject:hover { background: #3a3a3a; }
 
-        /* 状态栏 */
-        .status-bar {
-            padding: 8px 16px;
+        /* 移动端汉堡菜单按钮 */
+        .mobile-menu-btn {
+            display: none;
+            position: fixed;
+            top: 8px;
+            left: 8px;
+            z-index: 300;
             background: var(--surface);
-            border-bottom: 1px solid var(--border);
-            display: flex;
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            width: 36px;
+            height: 36px;
+            border-radius: 6px;
+            font-size: 18px;
+            cursor: pointer;
             align-items: center;
-            gap: 12px;
-            font-size: 11px;
+            justify-content: center;
         }
-        .status-indicator {
-            width: 8px; height: 8px; border-radius: 50%;
-            background: var(--gear-color);
-            box-shadow: 0 0 6px var(--gear-color);
-        }
-        .status-text { color: var(--text-primary); font-weight: 500; }
-        .status-desc { color: var(--text-muted); margin-left: auto; }
+        .mobile-menu-btn:hover { border-color: var(--accent); }
         /* 审计日志面板 */
         .audit-panel {
             width: 280px;
@@ -720,6 +722,70 @@
         @media (max-width: 900px) {
             .viz-charts { grid-template-columns: 1fr; }
         }
+
+        /* === 底部状态栏 === */
+        .bottom-status-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding: 8px 16px;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            font-size: 12px;
+            color: var(--text-muted);
+            z-index: 100;
+        }
+        .gear-badge {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 11px;
+            color: #000;
+        }
+        .bottom-status-bar span { flex-shrink: 0; }
+        .bottom-status-bar .anomaly-warn {
+            color: #e67e22;
+            font-size: 11px;
+        }
+        /* === 左侧菜单模型选择 === */
+        .chat-config {
+            padding: 0 16px 12px;
+            display: none;
+        }
+        .chat-config.visible { display: block; }
+        .model-select-nav {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 12px;
+            font-family: 'DM Mono', monospace;
+            cursor: pointer;
+        }
+        .model-select-nav:focus { outline: 1px solid var(--accent); }
+        /* === 移动端适配 === */
+        @media (max-width: 768px) {
+            .sidebar {
+                position: fixed;
+                left: -240px;
+                top: 0;
+                bottom: 0;
+                z-index: 200;
+                transition: left 0.3s;
+                padding-top: 49px;
+            }
+            .sidebar.open { left: 0; }
+            .mobile-menu-btn { display: flex; }
+            .audit-panel { display: none; }
+            .bottom-status-bar { font-size: 11px; gap: 12px; padding: 6px 12px; }
+        }
+
     </style>
 </head>
 <body>
@@ -731,6 +797,7 @@
 
     <!-- 顶部导航栏 -->
     <header>
+        <button class="mobile-menu-btn" onclick="toggleSidebar()">&#9776;</button>
         <h1>EntropyGuard</h1>
         <div class="mode-switch">
             <button class="mode-btn active" data-mode="single" onclick="switchAppMode('single')">单模型对话</button>
@@ -746,6 +813,15 @@
                 <div class="nav-item active" data-panel="chat" onclick="switchPanel('chat')">
                     <span class="nav-icon">💬</span>
                     <span>对话</span>
+                </div>
+                <div class="chat-config visible" id="chat-config">
+                    <select class="model-select-nav" id="modelSelectNav">
+                        <option value="kimi">Kimi</option>
+                        <option value="deepseek">DeepSeek</option>
+                        <option value="qwen">Qwen</option>
+                        <option value="doubao">豆包</option>
+                        <option value="mimo">MiMo</option>
+                    </select>
                 </div>
                 <div class="nav-item" data-panel="visualizer" onclick="switchPanel('visualizer')">
                     <span class="nav-icon">📊</span>
@@ -785,21 +861,8 @@
 
             <!-- === 对话面板 === -->
             <div id="panel-chat" class="panel active">
-                </div>
-                <div class="gear-buttons">
-                    <button class="gear-btn" data-gear="1" onclick="switchGear(1)">1 EMBRACE</button>
-                    <button class="gear-btn" data-gear="2" onclick="switchGear(2)">2 EXPLORE</button>
-                    <button class="gear-btn" data-gear="3" onclick="switchGear(3)">3 ADAPT</button>
-                    <button class="gear-btn" data-gear="4" onclick="switchGear(4)">4 LET_GO</button>
-                </div>
                 <div class="chat-header">
                     <span class="chat-title">AI 交互</span>
-                    <select class="model-select" id="modelSelect">
-                        <option value="deepseek">DeepSeek</option>
-                        <option value="qwen">Qwen</option>
-                        <option value="kimi" selected>Kimi</option>
-                        <option value="doubao">豆包</option>
-                    </select>
                 </div>
                 <div class="chat-messages" id="chatMessages">
                     <div class="message ai">
@@ -969,6 +1032,15 @@
         </main>
     </div>
 
+    <!-- 底部状态栏 -->
+    <footer class="bottom-status-bar">
+        <span id="footer-gear" class="gear-badge" style="background:#2ecc71;">EMBRACE</span>
+        <span>Sc: <span id="footer-sc">0.00</span></span>
+        <span>事件: <span id="footer-events">0</span></span>
+        <span>工具: <span id="footer-tools">0</span></span>
+        <span id="footer-anomaly" class="anomaly-warn" style="display:none;"></span>
+    </footer>
+
     <!-- 升级申请模态弹窗 -->
     <div class="upgrade-modal" id="upgradeModal">
         <div class="upgrade-content">
@@ -1064,6 +1136,38 @@
             });
         }
 
+        function updateFooter(state) {
+            const gearColors = {1:'#2ecc71', 2:'#3498db', 3:'#e67e22', 4:'#e74c3c'};
+            const gearNames = {1:'EMBRACE', 2:'EXPLORE', 3:'ADAPT', 4:'LET_GO'};
+
+            const gear = state.current_gear || 1;
+            const badge = document.getElementById('footer-gear');
+            badge.textContent = gearNames[gear] || 'EMBRACE';
+            badge.style.background = gearColors[gear] || '#2ecc71';
+
+            const scEl = document.getElementById('footer-sc');
+            if (scEl) scEl.textContent = (state.control_entropy || 0).toFixed(2);
+            const evEl = document.getElementById('footer-events');
+            if (evEl) evEl.textContent = state.event_count || 0;
+            const tlEl = document.getElementById('footer-tools');
+            if (tlEl) tlEl.textContent = state.tool_calls || 0;
+
+            const anomaly = document.getElementById('footer-anomaly');
+            if (anomaly) {
+                if (state.anomaly) {
+                    anomaly.style.display = 'inline';
+                    anomaly.textContent = '⚠ ' + state.anomaly.message;
+                } else {
+                    anomaly.style.display = 'none';
+                }
+            }
+        }
+
+        function toggleSidebar() {
+            const sidebar = document.querySelector('.sidebar');
+            sidebar.classList.toggle('open');
+        }
+
         async function init() {
             try {
                 window.scrollTo(0, 0);
@@ -1150,6 +1254,11 @@
 
             // 显示对应面板
             let targetPanel;
+            // chat-config visibility: only show for chat panel
+            const chatConfig = document.getElementById('chat-config');
+            if (chatConfig) {
+                chatConfig.classList.toggle('visible', panel === 'chat');
+            }
             if (panel === 'chat') {
                 if (currentAppMode === 'single') {
                     targetPanel = document.getElementById('panel-chat');
@@ -1197,6 +1306,9 @@
                 } else {
                     anomalyEl.style.display = 'none';
                 }
+
+                // Update bottom status bar
+                updateFooter(state);
 
                 // 更新主题色
                 document.documentElement.style.setProperty('--gear-color', gearColor);
@@ -1606,3 +1718,4 @@
     </script>
 </body>
 </html>
+
