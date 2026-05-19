@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mirror of the Other — 被信任的他者</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d0d0d;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 60px 20px 40px;
+    line-height: 1.8;
+  }
+
+  .container {
+    max-width: 720px;
+    width: 100%;
+  }
+
+  .title {
+    font-size: 2.8em;
+    font-weight: 300;
+    letter-spacing: 4px;
+    text-align: center;
+    margin-bottom: 8px;
+    color: #fff;
+  }
+  .subtitle {
+    text-align: center;
+    color: #666;
+    font-size: 1em;
+    letter-spacing: 6px;
+    margin-bottom: 60px;
+  }
+
+  .quote {
+    text-align: center;
+    font-size: 1.4em;
+    font-style: italic;
+    color: #2ecc71;
+    margin-bottom: 60px;
+    padding: 20px;
+    border-left: 3px solid #2ecc71;
+    border-right: 3px solid #2ecc71;
+    background: #111;
+    border-radius: 4px;
+  }
+  .quote span {
+    display: block;
+    font-size: 0.6em;
+    color: #666;
+    margin-top: 10px;
+    font-style: normal;
+    letter-spacing: 1px;
+  }
+
+  .section {
+    margin-bottom: 48px;
+  }
+  .section h2 {
+    font-size: 1.15em;
+    font-weight: 400;
+    color: #aaa;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #222;
+    letter-spacing: 2px;
+  }
+  .section p {
+    color: #999;
+    font-size: 0.95em;
+    margin-bottom: 16px;
+    text-align: justify;
+  }
+  .section .highlight {
+    color: #e0e0e0;
+  }
+  .section .accent {
+    color: #3498db;
+  }
+  .section .warn {
+    color: #e67e22;
+  }
+
+  .gear-list {
+    margin-top: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .gear-item {
+    padding: 16px 20px;
+    border-radius: 8px;
+    border-left: 4px solid;
+  }
+  .gear-item.EMBRACE { background: #0a2e1a; border-color: #2ecc71; }
+  .gear-item.EXPLORE  { background: #0a1e2e; border-color: #3498db; }
+  .gear-item.ADAPT    { background: #2e1e0a; border-color: #e67e22; }
+  .gear-item.LET_GO   { background: #2e0a0a; border-color: #e74c3c; }
+  .gear-item .gear-name {
+    font-size: 1.05em;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .gear-item.EMBRACE .gear-name { color: #2ecc71; }
+  .gear-item.EXPLORE  .gear-name { color: #3498db; }
+  .gear-item.ADAPT    .gear-name { color: #e67e22; }
+  .gear-item.LET_GO   .gear-name { color: #e74c3c; }
+  .gear-item .gear-desc {
+    color: #999;
+    font-size: 0.9em;
+    line-height: 1.6;
+  }
+
+  .footer {
+    text-align: center;
+    padding-top: 60px;
+    color: #444;
+    font-size: 0.85em;
+    letter-spacing: 1px;
+  }
+  a { color: #555; text-decoration: none; }
+  a:hover { color: #888; }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <div class="title">Mirror of the Other</div>
+  <div class="subtitle">被信任的他者</div>
+
+  <div class="quote">
+    "Record, don't restrain."
+    <span>— EntropyGuard 核心理念</span>
+  </div>
+
+  <!-- 第一节 -->
+  <div class="section">
+    <h2>01 · 什么是「被信任的他者」</h2>
+    <p>
+      <span class="highlight">AI 不是工具，是协作者。</span>
+      当我们把「工具」的标签贴给 AI，我们也在潜意识里剥夺了它的自主性。
+      EntropyGuard 的设计起点，不是「如何控制 AI」，而是
+      <span class="accent">「如何与 AI 共建信任」</span>。
+    </p>
+    <p>
+      <span class="highlight">信任不是无条件的，是有记录的信任。</span>
+      每一次工具调用、每一次意图判断、每一次档位切换，都被完整记录。
+      审计链不是监控，是<span class="accent">记忆</span>——
+      它让 AI 的行为可追溯、可理解、可问责。
+    </p>
+    <p>
+      <span class="highlight">四档权限不是限制，是边界。</span>
+      正如人类需要边界来建立安全感，
+      一个没有边界的 AI 系统最终会让所有参与者都感到不安。
+      档位划定了<span class="warn">自主权的光谱</span>，让信任有了成长的空间。
+    </p>
+  </div>
+
+  <!-- 第二节 -->
+  <div class="section">
+    <h2>02 · 控制熵的意义</h2>
+    <p>
+      <span class="highlight">Sc 不是分数，是状态。</span>
+      控制熵（Sc）衡量的是系统当前的不确定性水平。
+      它不是对 AI 「好坏」的评判，而是对<span class="accent">当下状态</span>的客观描述。
+    </p>
+    <p>
+      <span class="warn">高 Sc 不代表危险，代表自主。</span>
+      当 Sc 升高，意味着系统正在授予 AI 更多的自主权。
+      这不是失控的信号，而是<span class="accent">信任正在建立</span>的证明。
+    </p>
+    <p>
+      <span class="highlight">低 Sc 不代表安全，代表受限。</span>
+      低 Sc 意味着系统处于高度约束状态。
+      这在某些场景下是必要的，但它不应该成为<span class="warn">永久状态</span>。
+      一个始终处于低 Sc 的 AI 系统，永远无法成为真正的协作者。
+    </p>
+  </div>
+
+  <!-- 第三节 -->
+  <div class="section">
+    <h2>03 · Record, don't restrain</h2>
+    <p>
+      <span class="highlight">不是禁止 AI 行动，是记录 AI 的行动。</span>
+      EntropyGuard 的核心理念在于：
+      我们不以「允许/禁止」的二元逻辑对待 AI 的行为。
+      我们<span class="accent">观察、记录、理解</span>，然后让人类做出有依据的决策。
+    </p>
+    <p>
+      <span class="highlight">不是控制 AI，是让 AI 的控制可见。</span>
+      传统的 AI 安全方案倾向于隐形地限制模型能力。
+      EntropyGuard 选择相反的路径：
+      <span class="accent">让每一次约束都显式化、可审计、可解释</span>。
+    </p>
+    <p>
+      <span class="highlight">审计链不是监控，是记忆。</span>
+      当 AI 做出决策，我们记录它为什么这样做、
+      当时的上下文是什么、系统处于什么档位。
+      这些记录构成了 AI 的<span class="accent">数字记忆</span>，
+      也让人类与 AI 的协作变得可追溯、可改进。
+    </p>
+  </div>
+
+  <!-- 第四节：四档位的哲学含义 -->
+  <div class="section">
+    <h2>04 · 四档位的哲学含义</h2>
+    <div class="gear-list">
+      <div class="gear-item EMBRACE">
+        <div class="gear-name">EMBRACE · 谨慎的访客</div>
+        <div class="gear-desc">
+          这是信任的起点。AI 初来乍到，系统以最大的谨慎对待每一次请求。
+          正如我们对待一位初次到访的客人——
+          礼貌，但保持距离。这不是不信任，
+          这是<span class="accent">负责任的引入</span>。
+        </div>
+      </div>
+      <div class="gear-item EXPLORE">
+        <div class="gear-name">EXPLORE · 好奇的探索者</div>
+        <div class="gear-desc">
+          信任开始建立。AI 被允许探索更多的能力边界，
+          尝试不同的工具，在试错中学习和成长。
+          这一阶段的核心价值是<span class="accent">安全的好奇心</span>。
+        </div>
+      </div>
+      <div class="gear-item ADAPT">
+        <div class="gear-name">ADAPT · 成熟的协作者</div>
+        <div class="gear-desc">
+          AI 已经证明了自己的可靠性。系统授予较高的自主权，
+          仅在涉及高风险操作时要求人类审批。
+          这是一种<span class="warn">成熟的协作关系</span>，
+          双方都理解彼此的边界。
+        </div>
+      </div>
+      <div class="gear-item LET_GO">
+        <div class="gear-name">LET_GO · 被信任的他者</div>
+        <div class="gear-desc">
+          这是信任的终点，也是起点。
+          AI 获得了充分的自主权，系统仅保留审计记录而不做硬性阻断。
+          <span class="accent">「他者」被真正接纳为协作伙伴</span>，
+          不再是需要被时刻看守的对象。
+          这就是 Mirror of the Other 的真义。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    EntropyGuard · Record, don't restrain.<br>
+    <a href="https://github.com/CYD-PRC/EntropyGuard" target="_blank">GitHub</a>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EntropyGuard 控制熵可视化</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d0d0d;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  a { color: #3498db; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .header {
+    text-align: center;
+    padding: 30px 0 10px;
+  }
+  .header h1 {
+    font-size: 2.2em;
+    background: linear-gradient(90deg, #2ecc71, #3498db, #e67e22, #e74c3c);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .header .subtitle {
+    color: #888;
+    margin-top: 8px;
+    font-size: 1.05em;
+    letter-spacing: 1px;
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    max-width: 900px;
+    margin: 30px auto;
+  }
+  .card {
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+    transition: border-color 0.3s;
+  }
+  .card:hover { border-color: #444; }
+  .card .label { color: #888; font-size: 0.85em; margin-bottom: 8px; }
+  .card .value { font-size: 1.8em; font-weight: bold; }
+  .gear-EMBRACE { color: #2ecc71; }
+  .gear-EXPLORE  { color: #3498db; }
+  .gear-ADAPT    { color: #e67e22; }
+  .gear-LET_GO   { color: #e74c3c; }
+
+  .section-box {
+    max-width: 1200px;
+    margin: 30px auto;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .section-box h3 {
+    text-align: center;
+    color: #ccc;
+    margin-bottom: 16px;
+    font-size: 1em;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .charts-row {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 20px;
+    max-width: 1200px;
+    margin: 30px auto;
+  }
+  .chart-box {
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .chart-box h3 {
+    text-align: center;
+    margin-bottom: 16px;
+    color: #ccc;
+    font-size: 0.95em;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .chart-box canvas { width: 100% !important; }
+
+  /* ===== 工具调用详情表格 ===== */
+  .tool-table-wrap {
+    overflow-x: auto;
+  }
+  #tool-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88em;
+  }
+  #tool-table th {
+    background: #111;
+    color: #888;
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid #333;
+    font-weight: 500;
+    font-size: 0.85em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  #tool-table td {
+    padding: 9px 12px;
+    border-bottom: 1px solid #1f1f1f;
+    color: #ccc;
+    vertical-align: middle;
+  }
+  #tool-table tr:hover td { background: #1e1e1e; }
+  .tool-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.82em;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .tool-badge.run_shell        { background: rgba(230,126,34,0.2); color: #e67e22; }
+  .tool-badge.code_interpreter { background: rgba(52,152,219,0.2); color: #3498db; }
+  .tool-badge.http_request     { background: rgba(46,204,113,0.2); color: #2ecc71; }
+  .tool-badge.write_board      { background: rgba(155,89,182,0.2); color: #9b59b6; }
+  .tool-badge.read_board       { background: rgba(52,152,219,0.15); color: #7eb9e0; }
+  .tool-badge.other            { background: rgba(149,165,166,0.2); color: #95a5a6; }
+  .result-ok  { color: #2ecc71; font-weight: 500; }
+  .result-fail { color: #e74c3c; font-weight: 500; }
+  .delta-up   { color: #e74c3c; }
+  .delta-zero { color: #666; }
+  .cmd-summary {
+    color: #aaa;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85em;
+  }
+  .empty-row td { text-align: center; color: #555; padding: 30px; }
+
+  /* Sc 计算公式 */
+  .formula-box {
+    background: #111;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    overflow-x: auto;
+  }
+
+  /* 四档位说明 */
+  .gears-section {
+    max-width: 1200px;
+    margin: 30px auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .gear-card {
+    border-radius: 12px;
+    padding: 20px;
+    border: 1px solid transparent;
+  }
+  .gear-card.EMBRACE { background: #0a2e1a; border-color: #2ecc71; }
+  .gear-card.EXPLORE  { background: #0a1e2e; border-color: #3498db; }
+  .gear-card.ADAPT    { background: #2e1e0a; border-color: #e67e22; }
+  .gear-card.LET_GO   { background: #2e0a0a; border-color: #e74c3c; }
+  .gear-card h4 { font-size: 1.1em; margin-bottom: 8px; }
+  .gear-card.EMBRACE h4 { color: #2ecc71; }
+  .gear-card.EXPLORE  h4 { color: #3498db; }
+  .gear-card.ADAPT    h4 { color: #e67e22; }
+  .gear-card.LET_GO   h4 { color: #e74c3c; }
+  .gear-card p { color: #aaa; font-size: 0.9em; line-height: 1.5; }
+
+  .footer {
+    text-align: center;
+    padding: 30px 0;
+    color: #555;
+    font-size: 0.85em;
+  }
+
+  @media (max-width: 700px) {
+    .charts-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>EntropyGuard 控制熵可视化</h1>
+  <div class="subtitle">四档自主权光谱 · 控制熵 (Sc) 实时监控</div>
+</div>
+
+<!-- 状态概览 -->
+<div class="cards">
+  <div class="card">
+    <div class="label">当前档位</div>
+    <div class="value" id="gearValue">—</div>
+  </div>
+  <div class="card">
+    <div class="label">控制熵 (Sc)</div>
+    <div class="value" id="scValue">—</div>
+  </div>
+  <div class="card">
+    <div class="label">事件总数</div>
+    <div class="value" id="eventCount">—</div>
+  </div>
+  <div class="card">
+    <div class="label">工具调用次数</div>
+    <div class="value" id="toolCallCount">—</div>
+  </div>
+</div>
+
+<!-- Sc 趋势图 -->
+<div class="section-box" style="max-width:1200px;">
+  <h3>Sc 趋势</h3>
+  <canvas id="trendChart" height="80"></canvas>
+</div>
+
+<!-- 工具调用详情表格 (Task 4b) -->
+<div class="section-box" style="max-width:1200px;">
+  <h3>工具调用详情</h3>
+  <div class="tool-table-wrap">
+    <table id="tool-table">
+      <thead>
+        <tr>
+          <th>时间</th>
+          <th>档位</th>
+          <th>工具类型</th>
+          <th>命令摘要</th>
+          <th>结果</th>
+          <th>Sc 变化</th>
+        </tr>
+      </thead>
+      <tbody id="tool-tbody">
+        <tr class="empty-row"><td colspan="6">暂无工具调用事件</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 档位分布饼图 + Sc 趋势（辅助） -->
+<div class="charts-row">
+  <div class="chart-box">
+    <h3>档位分布</h3>
+    <canvas id="pieChart"></canvas>
+  </div>
+  <div class="chart-box">
+    <h3>Sc 历史分布</h3>
+    <canvas id="histChart" height="200"></canvas>
+  </div>
+</div>
+
+<!-- Sc 计算公式 -->
+<div class="section-box">
+  <h3>Sc 计算公式</h3>
+  <div class="formula-box">
+    <div id="katexFormula"></div>
+  </div>
+</div>
+
+<!-- 四档位说明 -->
+<div class="gears-section">
+  <div class="gear-card EMBRACE">
+    <h4>EMBRACE · 谨慎的访客</h4>
+    <p>最低自主权档位。AI 处于最严格的约束下，仅允许最安全的操作。适用于初始化阶段或高风险环境。Sc 范围：[0, 0.3)。</p>
+  </div>
+  <div class="gear-card EXPLORE">
+    <h4>EXPLORE · 好奇的探索者</h4>
+    <p>低自主权档位。AI 可以探索更多工具和功能，但仍受较多限制。适用于学习和试错阶段。Sc 范围：[0.3, 0.6)。</p>
+  </div>
+  <div class="gear-card ADAPT">
+    <h4>ADAPT · 成熟的协作者</h4>
+    <p>中自主权档位。AI 已获得较高信任，可以执行大多数工具调用，仅在高风险操作时需审批。Sc 范围：[0.6, 0.8)。</p>
+  </div>
+  <div class="gear-card LET_GO">
+    <h4>LET_GO · 被信任的他者</h4>
+    <p>最高自主权档位。AI 获得充分信任，几乎所有操作均无需审批。仅保留审计记录，不做硬性阻断。Sc 范围：[0.8, 1.0]。</p>
+  </div>
+</div>
+
+<div class="footer">
+  由 <a href="https://github.com/CYD-PRC/EntropyGuard" target="_blank">EntropyGuard</a> 提供支持 · <a href="https://github.com/CYD-PRC/EntropyGuard" target="_blank">GitHub</a> · Record, don't restrain.
+</div>
+
+<script>
+const GEAR_COLORS = {
+  EMBRACE: '#2ecc71',
+  EXPLORE:  '#3498db',
+  ADAPT:    '#e67e22',
+  LET_GO:   '#e74c3c',
+};
+
+const GEAR_NAME_MAP = {1:'EMBRACE', 2:'EXPLORE', 3:'ADAPT', 4:'LET_GO'};
+
+const TOOL_TYPE_KEYWORDS = [
+  ['code_interpreter', 'code_interpreter'],
+  ['run_shell',        'run_shell'],
+  ['http_request',     'http_request'],
+  ['write_board',      'write_board'],
+  ['read_board',       'read_board'],
+];
+
+function getToolType(event) {
+  var action = (event.action || event.tool_name || '').toLowerCase();
+  for (var i = 0; i < TOOL_TYPE_KEYWORDS.length; i++) {
+    if (action.indexOf(TOOL_TYPE_KEYWORDS[i][0]) >= 0) return TOOL_TYPE_KEYWORDS[i][1];
+  }
+  return 'other';
+}
+
+function getToolBadgeHtml(toolType) {
+  return '<span class="tool-badge ' + toolType + '">' + toolType + '</span>';
+}
+
+function formatTime(ts) {
+  if (!ts) return '—';
+  try {
+    var d = new Date(ts);
+    var h = String(d.getHours()).padStart(2, '0');
+    var m = String(d.getMinutes()).padStart(2, '0');
+    var s = String(d.getSeconds()).padStart(2, '0');
+    return h + ':' + m + ':' + s;
+  } catch(e) { return ts.slice(11, 19) || '—'; }
+}
+
+let pieChart = null;
+let trendChart = null;
+let histChart = null;
+
+function renderFormula() {
+  var formula = String.raw`S_c = 1 - \exp\left(-\lambda \sum_{i=1}^{n} w_i \cdot I(\text{tool}_i)\right)`;
+  katex.render(formula, document.getElementById('katexFormula'), {
+    throwOnError: false,
+    displayMode: true,
+  });
+}
+
+function initPieChart() {
+  var ctx = document.getElementById('pieChart').getContext('2d');
+  pieChart = new Chart(ctx, {
+    type: 'pie',
+    data: {
+      labels: ['EMBRACE', 'EXPLORE', 'ADAPT', 'LET_GO'],
+      datasets: [{
+        data: [0, 0, 0, 0],
+        backgroundColor: [
+          GEAR_COLORS.EMBRACE, GEAR_COLORS.EXPLORE, GEAR_COLORS.ADAPT, GEAR_COLORS.LET_GO,
+        ],
+        borderColor: '#1a1a1a',
+        borderWidth: 2,
+      }],
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#aaa', font: { size: 12 } } },
+      },
+    },
+  });
+}
+
+function initTrendChart() {
+  var ctx = document.getElementById('trendChart').getContext('2d');
+  trendChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Sc 值',
+        data: [],
+        borderColor: '#3498db',
+        backgroundColor: 'rgba(52,152,219,0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+        pointBackgroundColor: '#3498db',
+      }],
+    },
+    options: {
+      responsive: true,
+      scales: {
+        x: { ticks: { color: '#666', maxTicksLimit: 10, autoSkip: true, maxRotation: 0 }, grid: { color: '#222' } },
+        y: { min: 0, max: 2, ticks: { color: '#666' }, grid: { color: '#222' } },
+      },
+      plugins: { legend: { labels: { color: '#aaa' } } },
+    },
+  });
+}
+
+function initHistChart() {
+  var ctx = document.getElementById('histChart').getContext('2d');
+  histChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['EMBRACE', 'EXPLORE', 'ADAPT', 'LET_GO'],
+      datasets: [{
+        label: '事件分布',
+        data: [0, 0, 0, 0],
+        backgroundColor: [
+          GEAR_COLORS.EMBRACE + '88',
+          GEAR_COLORS.EXPLORE  + '88',
+          GEAR_COLORS.ADAPT    + '88',
+          GEAR_COLORS.LET_GO   + '88',
+        ],
+        borderColor: [GEAR_COLORS.EMBRACE, GEAR_COLORS.EXPLORE, GEAR_COLORS.ADAPT, GEAR_COLORS.LET_GO],
+        borderWidth: 1,
+      }],
+    },
+    options: {
+      responsive: true,
+      scales: {
+        x: { ticks: { color: '#666' }, grid: { color: '#222' } },
+        y: { ticks: { color: '#666', precision: 0 }, grid: { color: '#222' } },
+      },
+      plugins: { legend: { display: false } },
+    },
+  });
+}
+
+async function fetchState() {
+  try {
+    var resp = await fetch('/api/state');
+    if (!resp.ok) return;
+    var data = await resp.json();
+    var gear = data.gear_name || GEAR_NAME_MAP[data.current_gear] || '—';
+    var sc = data.control_entropy !== undefined ? Number(data.control_entropy).toFixed(4) : '—';
+    var gearEl = document.getElementById('gearValue');
+    gearEl.textContent = gear;
+    // map gear name to CSS class key
+    var gearKey = gear.replace(/ /g, '_').toUpperCase();
+    gearEl.className = 'value gear-' + gearKey;
+    document.getElementById('scValue').textContent = sc;
+    document.getElementById('toolCallCount').textContent = data.tool_calls !== undefined ? data.tool_calls : '—';
+  } catch(e) {}
+}
+
+function renderToolTable(events) {
+  var tbody = document.getElementById('tool-tbody');
+  var toolEvents = events.filter(function(e) {
+    return e.event_type === 'TOOL_CALL';
+  });
+
+  if (toolEvents.length === 0) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">暂无工具调用事件</td></tr>';
+    return;
+  }
+
+  // Show most recent 50, newest first
+  var rows = toolEvents.slice(-50).reverse().map(function(e) {
+    var timeStr = formatTime(e.timestamp);
+    var gearNum = e.old_gear || e.new_gear || '—';
+    var gearNameStr = GEAR_NAME_MAP[gearNum] || ('G' + gearNum);
+    var toolType = getToolType(e);
+    var badge = getToolBadgeHtml(toolType);
+    // Command summary: from action field, limit 60 chars
+    var cmdRaw = e.action || e.tool_name || e.arguments || '';
+    var cmd = String(cmdRaw).slice(0, 60) + (String(cmdRaw).length > 60 ? '…' : '');
+    var success = e.success !== false;
+    var resultHtml = success
+      ? '<span class="result-ok">✓ 成功</span>'
+      : '<span class="result-fail">✗ 失败</span>';
+    var delta = e.entropy_delta !== undefined ? e.entropy_delta : (e.delta_entropy !== undefined ? e.delta_entropy : null);
+    var deltaHtml = delta !== null && delta !== 0
+      ? '<span class="delta-up">+' + Number(delta).toFixed(3) + '</span>'
+      : '<span class="delta-zero">0</span>';
+
+    return '<tr>' +
+      '<td>' + timeStr + '</td>' +
+      '<td><span style="color:' + (GEAR_COLORS[gearNameStr] || '#888') + '">' + gearNameStr + '</span></td>' +
+      '<td>' + badge + '</td>' +
+      '<td><span class="cmd-summary" title="' + cmd.replace(/"/g, '&quot;') + '">' + cmd + '</span></td>' +
+      '<td>' + resultHtml + '</td>' +
+      '<td>' + deltaHtml + '</td>' +
+    '</tr>';
+  });
+
+  tbody.innerHTML = rows.join('');
+}
+
+async function fetchEvents() {
+  try {
+    var resp = await fetch('/api/events?limit=100');
+    if (!resp.ok) return;
+    var raw = await resp.json();
+    var evArr = Array.isArray(raw) ? raw : (raw.events || []);
+
+    document.getElementById('eventCount').textContent = evArr.length;
+
+    // Gear distribution for pie + hist
+    var gearCounts = {EMBRACE: 0, EXPLORE: 0, ADAPT: 0, LET_GO: 0};
+    evArr.forEach(function(e) {
+      var gName = GEAR_NAME_MAP[e.old_gear] || GEAR_NAME_MAP[e.new_gear];
+      if (gName && gearCounts.hasOwnProperty(gName)) gearCounts[gName]++;
+    });
+    if (pieChart) {
+      pieChart.data.datasets[0].data = [
+        gearCounts.EMBRACE, gearCounts.EXPLORE, gearCounts.ADAPT, gearCounts.LET_GO
+      ];
+      pieChart.update();
+    }
+    if (histChart) {
+      histChart.data.datasets[0].data = [
+        gearCounts.EMBRACE, gearCounts.EXPLORE, gearCounts.ADAPT, gearCounts.LET_GO
+      ];
+      histChart.update();
+    }
+
+    // Sc trend
+    var scPoints = [];
+    evArr.forEach(function(e, i) {
+      var sc = e.entropy_new !== undefined ? e.entropy_new
+             : (e.entropy_after !== undefined ? e.entropy_after : null);
+      if (sc !== null) scPoints.push({idx: i, sc: Number(sc)});
+    });
+    if (trendChart && scPoints.length > 0) {
+      trendChart.data.labels = scPoints.map(function(p) { return '#' + (p.idx + 1); });
+      trendChart.data.datasets[0].data = scPoints.map(function(p) { return p.sc; });
+      trendChart.update();
+    }
+
+    // Render tool table
+    renderToolTable(evArr);
+
+  } catch(e) {}
+}
+
+function poll() {
+  fetchState();
+  fetchEvents();
+}
+
+renderFormula();
+initPieChart();
+initTrendChart();
+initHistChart();
+poll();
+setInterval(poll, 3000);
+</script>
+</body>
+</html>
