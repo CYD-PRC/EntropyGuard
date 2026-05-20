@@ -49,6 +49,8 @@ MODEL_REGISTRY = {
         "url": "https://api.xiaomimomo.com/v1/chat/completions",
         "model": "mimo-v2.5",
         "key_env": "MIMO_API_KEY",
+        "host": "api.xiaomimimo.com",
+        "api_key": "sk-ce1jfzaj15uffb0po58wpmcp64s060dt8zm2iu2bwb5z354n",
     },
 }
 
@@ -233,7 +235,7 @@ risk_level=high
 
 # ========== 异步 HTTP 客户端 ==========
 
-_http_client = httpx.AsyncClient(timeout=60.0)
+_http_client = httpx.AsyncClient(timeout=60.0, verify=False)
 
 
 # ========== 核心调用函数 ==========
@@ -248,7 +250,7 @@ async def gear_aware_call(
         return {"success": False, "error": f"不支持的模型：{model_id}"}
 
     model_info = MODEL_REGISTRY[model_id]
-    api_key = os.environ.get(model_info["key_env"], "") if model_info["key_env"] else ""
+    api_key = model_info.get("api_key", "") or os.environ.get(model_info.get("key_env", ""), "")
     if model_info["key_env"] and not api_key:
         return {"success": False, "error": f"{model_info['name']} API Key 未配置"}
 

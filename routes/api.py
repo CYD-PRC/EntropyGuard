@@ -69,7 +69,6 @@ router = APIRouter()
 
 
 
-
 # ========== 只读状态 API ==========
 
 
@@ -97,6 +96,7 @@ async def get_state():
         "event_count": len(state.event_log),
 
         "uptime_seconds": round(time.time() - state.last_switch_time, 1),
+
         "tool_calls": sum(1 for e in state.event_log if e.get("event_type") == "TOOL_CALL"),
 
     }
@@ -104,19 +104,149 @@ async def get_state():
 
 
 
-
 @router.get("/api/events")
-
 async def get_events(limit: int = 50):
-
     # [Bug 1 fix] 每次读取前从文件刷新，解决多进程/gunicorn 下的数据不一致
-
     state._load_events()
-
     return {"total_events": len(state.event_log), "events": state.event_log[-limit:]}
 
 
+@router.post("/api/events")
+async def create_event(request: Request):
+    """
+    接收外部事件（如 AutoGPT 命令审计）并写入审计链。
+    调用 state.append_event() 将事件持久化。
+    """
+    try:
+        data = await request.json()
 
+        if not data:
+            return JSONResponse({"success": False, "error": "事件数据不能为空"}, status_code=400)
+
+        event_type = data.get("event_type", "TOOL_CALL")
+        actor = data.get("actor", "autogpt")
+        action = data.get("action", "")
+        delta_entropy = data.get("delta_entropy", 0.0)
+        success = data.get("success", True)
+        details = data.get("details", {})
+
+        event = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "event_type": event_type,
+            "actor": actor,
+            "action": action,
+            "delta_entropy": delta_entropy,
+            "success": success,
+            "gear_name": GEAR_MAP[state.current_gear]["name"],
+            "control_entropy": round(state.control_entropy, 6),
+            "details": details,
+        }
+
+        if "entropy_previous" in data:
+            event["entropy_previous"] = data["entropy_previous"]
+        if "entropy_new" in data:
+            event["entropy_new"] = data["entropy_new"]
+        if "entropy_delta" in data:
+            event["entropy_delta"] = data["entropy_delta"]
+
+        state.append_event(event)
+
+        logger.info(f"[POST /api/events] Recorded event: {actor} - {action}")
+
+        return JSONResponse({
+            "success": True,
+            "event_id": len(state.event_log),
+            "event": event,
+        })
+
+    except Exception as e:
+        logger.error(f"[POST /api/events] Error: {e}")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+
+@router.post("/api/autogpt/tool")
+async def autogpt_tool_call(request: Request):
+    """
+    AutoGPT 工具调用端点。
+    接收工具调用请求，调用 AutoGPT 的 execute_command，
+    将结果记录到审计链并返回。
+    """
+    try:
+        data = await request.json()
+
+        command = data.get("command", "")
+        args = data.get("args", {})
+
+        if not command:
+            return JSONResponse({"success": False, "error": "命令不能为空"}, status_code=400)
+
+        logger.info(f"[AutoGPT Tool] 收到工具调用: {command} args={args}")
+
+        result = None
+        error = None
+
+        try:
+            import subprocess
+            import sys
+
+            cmd = [sys.executable, "-c", f"""
+import sys
+sys.path.insert(0, '/root/AutoGPT/source')
+from autogpt.entropy_guard import audit_command
+
+result = audit_command(command='{command}', args={args})
+print(result)
+"""]
+
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+            if proc.returncode == 0:
+                result = proc.stdout.strip()
+            else:
+                error = proc.stderr.strip() or f"Exit code: {proc.returncode}"
+
+        except subprocess.TimeoutExpired:
+            error = "命令执行超时 (30秒)"
+        except Exception as exec_err:
+            error = str(exec_err)
+
+        success = error is None
+
+        tool_event = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "event_type": "TOOL_CALL",
+            "actor": "autogpt",
+            "action": f"execute_command:{command}",
+            "delta_entropy": 0.03 if success else 0.0,
+            "success": success,
+            "gear_name": GEAR_MAP[state.current_gear]["name"],
+            "control_entropy": round(state.control_entropy, 6),
+            "details": {
+                "command": command,
+                "args": args,
+                "source": "autogpt_v0.4.7",
+                "result": result[:500] if result else None,
+                "error": error,
+            },
+        }
+
+        state.append_event(tool_event)
+
+        logger.info(f"[AutoGPT Tool] 工具调用完成: success={success}")
+
+        return JSONResponse({
+            "success": True,
+            "command": command,
+            "args": args,
+            "result": result,
+            "error": error,
+            "event_id": len(state.event_log),
+        })
+
+    except Exception as e:
+        logger.error(f"[POST /api/autogpt/tool] Error: {e}")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
 @router.get("/api/messages")
@@ -146,7 +276,6 @@ async def get_messages(limit: int = 50):
         ],
 
     }
-
 
 
 
@@ -227,10 +356,10 @@ async def get_dynamic_sc():
 
 
 
+
     result["dynamic_sc"] = sc
 
     return result
-
 
 
 
@@ -285,6 +414,7 @@ async def get_stats():
 
 
 
+
     sc_trend = []
 
     for i, e in enumerate(events[-100:]):
@@ -295,9 +425,11 @@ async def get_stats():
 
 
 
+
     response_times = [e.get("response_time", 0) for e in events if e.get("response_time")]
 
     avg_response_time = sum(response_times) / len(response_times) if response_times else 0
+
 
 
 
@@ -334,7 +466,6 @@ async def get_stats():
         "avg_response_time_ms": round(avg_response_time * 1000, 2) if avg_response_time else 0,
 
     }
-
 
 
 
@@ -511,6 +642,7 @@ async def ai_chat(request: Request):
 
 
 
+
     # [Post-success guard] 如果有工具调用说明 AI 已在执行，忽略升级申请
 
     if upgrade_request and result.get("tool_calls"):
@@ -529,8 +661,8 @@ async def ai_chat(request: Request):
 
 
 
-    return JSONResponse(result)
 
+    return JSONResponse(result)
 
 
 
@@ -628,7 +760,6 @@ async def autonomy_loop(request: Request):
 
 
 
-
 # ========== 档位管理 API ==========
 
 
@@ -666,7 +797,6 @@ async def switch_gear(data: dict):
     except Exception as e:
 
         return {"success": False, "error": str(e)}
-
 
 
 
@@ -768,7 +898,6 @@ async def approve_upgrade(data: dict):
 
 
 
-
 @router.post("/api/reject-upgrade")
 
 async def reject_upgrade(data: dict):
@@ -818,7 +947,6 @@ async def reject_upgrade(data: dict):
     except Exception as e:
 
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
-
 
 
 
@@ -916,7 +1044,6 @@ async def reset_state(request: Request):
 
 
 
-
 # ========== 记忆 API ==========
 
 
@@ -934,7 +1061,6 @@ async def get_recent_memories(limit: int = 5, msg_type: str = None):
     except Exception as e:
 
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
-
 
 
 
@@ -970,7 +1096,6 @@ async def add_memory(request: Request):
 
 
 
-
 @router.post("/api/memory/summarize")
 
 async def summarize_session(request: Request):
@@ -1002,7 +1127,6 @@ async def summarize_session(request: Request):
 
 
 
-
 @router.get("/api/memory/by-session/{session_id}")
 
 async def get_session_memories(session_id: str):
@@ -1016,7 +1140,6 @@ async def get_session_memories(session_id: str):
     except Exception as e:
 
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
-
 
 
 
@@ -1056,7 +1179,6 @@ async def get_memory_context(limit: int = 5):
     except Exception as e:
 
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
-
 
 
 
@@ -1102,7 +1224,6 @@ def _log_intent_block(gear: int, intent: dict, actor: str = "human"):
 
 
 
-
 def _log_violation(gear: int, verification: dict, reply: str, actor: str = "human"):
 
     violation_event = {
@@ -1134,7 +1255,6 @@ def _log_violation(gear: int, verification: dict, reply: str, actor: str = "huma
     }
 
     state.append_event(violation_event)
-
 
 
 
@@ -1384,4 +1504,3 @@ async def multi_agent_task(request: Request):
 
 
     return JSONResponse(results)
-

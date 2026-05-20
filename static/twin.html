@@ -309,6 +309,63 @@
         .input-area button:hover { opacity: 0.8; }
         .input-area button:disabled { opacity: 0.5; cursor: not-allowed; }
 
+        /* AutoGPT 模式开关 */
+        .autogpt-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0 12px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .autogpt-toggle:hover {
+            border-color: var(--accent);
+        }
+        .autogpt-toggle.active {
+            background: rgba(232,197,71,0.1);
+            border-color: var(--accent);
+        }
+        .autogpt-toggle-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-family: 'DM Mono', monospace;
+        }
+        .autogpt-toggle.active .autogpt-toggle-label {
+            color: var(--accent);
+        }
+        .toggle-switch {
+            position: relative;
+            width: 36px;
+            height: 20px;
+            background: var(--border);
+            border-radius: 10px;
+            transition: all 0.2s;
+        }
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            background: var(--text-muted);
+            border-radius: 50%;
+            transition: all 0.2s;
+        }
+        .autogpt-toggle.active .toggle-switch {
+            background: var(--accent);
+        }
+        .autogpt-toggle.active .toggle-switch::after {
+            left: 18px;
+            background: #000;
+        }
+        .autogpt-icon {
+            font-size: 14px;
+        }
+
         /* === 多智能体面板 === */
         .multi-header {
             padding: 12px 24px;
@@ -665,6 +722,19 @@
         .audit-delta { color: #e67e22; font-size: 10px; }
         .audit-check { color: #2ecc71; }
         .audit-check.fail { color: #e74c3c; }
+        .audit-entry.autogpt {
+            background: rgba(138,43,226,0.08);
+            border-left: 3px solid #9b59b6;
+        }
+        .audit-entry.autogpt .audit-event {
+            color: #9b59b6;
+        }
+        .audit-entry.autogpt .audit-delta {
+            color: #8e44ad;
+        }
+        .audit-entry.autogpt .audit-check {
+            color: #9b59b6;
+        }
 
         /* 档位按钮 */
         .gear-buttons {
@@ -871,6 +941,11 @@
                 </div>
                 <div class="input-area">
                     <input type="text" id="chatInput" placeholder="输入问题..." onkeydown="if(event.key==='Enter')sendChat()">
+                    <div class="autogpt-toggle" id="autogptToggle" onclick="toggleAutoGPTMode()">
+                        <span class="autogpt-icon">🤖</span>
+                        <span class="autogpt-toggle-label">AutoGPT</span>
+                        <div class="toggle-switch"></div>
+                    </div>
                     <button id="sendBtn" onclick="sendChat()">发送</button>
                 </div>
             </div>
@@ -1069,6 +1144,17 @@
         let lastUserMessage = null;
         let memoryContext = "";
         let currentSessionId = "sess_" + Date.now();
+        let autoGPTMode = false; // AutoGPT 模式开关
+
+        // ========== AutoGPT 模式切换 ==========
+        function toggleAutoGPTMode() {
+            autoGPTMode = !autoGPTMode;
+            const toggle = document.getElementById('autogptToggle');
+            if (toggle) {
+                toggle.classList.toggle('active', autoGPTMode);
+            }
+            console.log('AutoGPT 模式:', autoGPTMode ? '开启' : '关闭');
+        }
 
         // ========== 初始化 ==========
         // ========== 审计日志轮询 ==========
@@ -1082,15 +1168,17 @@
                 list.innerHTML = '';
                 events.slice().reverse().forEach(e => {
                     const div = document.createElement('div');
-                    div.className = 'audit-entry';
+                    const isAutoGPT = e.actor === 'autogpt';
+                    div.className = 'audit-entry' + (isAutoGPT ? ' autogpt' : '');
                     const time = e.timestamp
                         ? new Date(e.timestamp).toLocaleTimeString('zh-CN', {hour12:false})
                         : '--:--:--';
                     const etype = e.event_type || '';
                     const delta = e.delta_entropy != null ? e.delta_entropy : 0;
                     const ok = e.success !== false;
+                    const actorLabel = isAutoGPT ? '🤖' : (e.actor ? e.actor.charAt(0).toUpperCase() : '');
                     div.innerHTML = `<span class="audit-time">${time}</span>
-                        <span class="audit-event">${etype}</span>
+                        <span class="audit-event">${actorLabel} ${etype}</span>
                         <span class="audit-delta">${delta >= 0 ? '+' : ''}${delta.toFixed(2)}</span>
                         <span class="audit-check${ok ? '' : ' fail'}">${ok ? '✓' : '✗'}</span>`;
                     list.appendChild(div);
