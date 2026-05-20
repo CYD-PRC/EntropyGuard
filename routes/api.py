@@ -493,6 +493,7 @@ async def ai_chat(request: Request):
     memory_context = data.get("memory_context")
 
     actor = data.get("actor", "human")
+    autogpt_mode = data.get("autogpt_mode", False)
 
 
 
@@ -561,6 +562,18 @@ async def ai_chat(request: Request):
             }
 
 
+
+
+    # AutoGPT 模式审计
+    if autogpt_mode:
+        state.append_event({
+            "event_type": "AUTO_GPT_ACTIVATED",
+            "actor": "human",
+            "action": f"AutoGPT mode enabled for: {user_message[:50]}",
+            "delta_entropy": 0,
+            "success": True,
+        })
+        logger.info(f"[AutoGPT] Mode enabled, message: {user_message[:50]}")
 
     result = await gear_aware_call(model_id, user_message, gear, upgrade_retry, memory_context, actor)
 
