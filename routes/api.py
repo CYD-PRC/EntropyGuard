@@ -104,6 +104,10 @@ async def get_state():
         "autogpt_sc": round(state.autogpt_sc, 4),
         "autogpt_event_count": state.autogpt_event_count,
         "autogpt_tool_calls": state.autogpt_tool_calls,
+        "last_termination_reason": next(
+            (e.get("termination_reason") for e in reversed(state.event_log) if e.get("termination_reason")),
+            None
+        ),
 
     }
 

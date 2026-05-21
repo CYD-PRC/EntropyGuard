@@ -237,6 +237,11 @@ class FerrymanState:
                     sort_keys=True, default=str
                 ).encode()
             ).hexdigest()
+            # Detect termination events
+            termination_types = ["TASK_COMPLETE", "TASK_ERROR", "CIRCUIT_BREAKER", "USER_INTERRUPT", "SHUTDOWN"]
+            if event.get("event_type") in termination_types:
+                event["termination_reason"] = event.get("event_type", "unknown").lower()
+
             self.event_log.append(event)
             self._save_events()
             return event
