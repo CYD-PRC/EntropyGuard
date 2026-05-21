@@ -81,6 +81,9 @@ async def get_state():
 
     state._load_events()
 
+    # 刷新 autogpt_sc / autogpt_tool_calls 等实例属性
+    state.compute_dynamic_sc()
+
     return {
 
         "current_gear": state.current_gear,
