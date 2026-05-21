@@ -98,6 +98,9 @@ async def get_state():
         "uptime_seconds": round(time.time() - state.last_switch_time, 1),
 
         "tool_calls": sum(1 for e in state.event_log if e.get("event_type") == "TOOL_CALL"),
+        "autogpt_sc": round(state.autogpt_sc, 4),
+        "autogpt_event_count": state.autogpt_event_count,
+        "autogpt_tool_calls": state.autogpt_tool_calls,
 
     }
 

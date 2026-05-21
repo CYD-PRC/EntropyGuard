@@ -33,6 +33,10 @@ class FerrymanState:
         self._recent_messages = {}  # hash -> timestamp
         self._load_events()
         self.pending_proposal = None  # [Fix] switch confirm
+        # AutoGPT 独立 Sc 评分池
+        self.autogpt_sc = 0.0
+        self.autogpt_event_count = 0
+        self.autogpt_tool_calls = 0
 
     def calculate_entropy(self, gear: int) -> float:
         return self.BASE_SC.get(gear, 0.0)
@@ -40,6 +44,9 @@ class FerrymanState:
     def compute_dynamic_sc(self) -> dict:
         base = self.BASE_SC.get(self.current_gear, 0.0)
         adjustment = 0.0
+        autogpt_adjustment = 0.0
+        autogpt_tool_count = 0
+        autogpt_event_count = 0
         signals = []
 
         # 只看最后一次档位切换之后的事件
@@ -52,23 +59,50 @@ class FerrymanState:
 
         for ev in recent_events:
             etype = ev.get("event_type", "")
-            if etype == "TOOL_CALL":
-                adjustment += Config.TOOL_ENTROPY_INCREASE
-                signals.append(f"+{Config.TOOL_ENTROPY_INCREASE}(TOOL:{ev.get('tool_name','?')})")
-            if etype == "OUTPUT_VIOLATION":
-                adjustment += Config.VIOLATION_ENTROPY_INCREASE
-                signals.append(f"+{Config.VIOLATION_ENTROPY_INCREASE}(VIOLATION)")
-            if etype == "INTENT_BLOCK":
-                adjustment += 0.05
-                signals.append("+0.05(INTENT)")
-            if etype == "UPGRADE_REJECT":
-                adjustment -= 0.10
-                signals.append("-0.10(REJECT)")
-            if etype == "GEAR_SWITCH" and ev.get("direction") == "down":
-                adjustment -= 0.05
-                signals.append("-0.05(DOWNGRADE)")
+            actor = ev.get("actor", "human")
+            is_autogpt = (actor == "autogpt")
 
-        # 空闲惩罚：EXPLORE 及以上
+            if etype == "TOOL_CALL":
+                delta = Config.TOOL_ENTROPY_INCREASE
+                if is_autogpt:
+                    autogpt_adjustment += delta
+                    autogpt_tool_count += 1
+                    autogpt_event_count += 1
+                else:
+                    adjustment += delta
+                signals.append(f"+{delta}(TOOL:{ev.get('tool_name','?')}){'[AG]' if is_autogpt else ''}")
+            elif etype == "OUTPUT_VIOLATION":
+                delta = Config.VIOLATION_ENTROPY_INCREASE
+                if is_autogpt:
+                    autogpt_adjustment += delta
+                    autogpt_event_count += 1
+                else:
+                    adjustment += delta
+                signals.append(f"+{delta}(VIOLATION){'[AG]' if is_autogpt else ''}")
+            elif etype == "INTENT_BLOCK":
+                delta = 0.05
+                if is_autogpt:
+                    autogpt_adjustment += delta
+                    autogpt_event_count += 1
+                else:
+                    adjustment += delta
+                signals.append(f"+{delta}(INTENT){'[AG]' if is_autogpt else ''}")
+            elif etype == "UPGRADE_REJECT":
+                delta = -0.10
+                if is_autogpt:
+                    autogpt_adjustment += delta
+                else:
+                    adjustment += delta
+                signals.append(f"{delta}(REJECT){'[AG]' if is_autogpt else ''}")
+            elif etype == "GEAR_SWITCH" and ev.get("direction") == "down":
+                delta = -0.05
+                adjustment += delta
+                signals.append(f"{delta}(DOWNGRADE)")
+            else:
+                if is_autogpt:
+                    autogpt_event_count += 1
+
+        # 空闲惩罚：EXPLORE 及以上（不计入 autogpt）
         idle_minutes = 0
         if self.current_gear >= 2:
             idle_minutes = max(
@@ -84,12 +118,24 @@ class FerrymanState:
         gear_max = self.BASE_SC.get(self.current_gear + 1, float("inf"))
         dynamic_sc = max(gear_min, min(dynamic_sc, gear_max))
 
+        # AutoGPT 独立 Sc（不受 gear clamp）
+        autogpt_dynamic_sc = round(base + autogpt_adjustment, 6)
+
+        # 更新实例属性
+        self.autogpt_sc = autogpt_dynamic_sc
+        self.autogpt_event_count = autogpt_event_count
+        self.autogpt_tool_calls = autogpt_tool_count
+
         return {
             "base_sc": base,
             "adjustment": round(adjustment, 6),
             "dynamic_sc": dynamic_sc,
             "gear": self.current_gear,
             "signals": signals[-10:],
+            "autogpt_adjustment": round(autogpt_adjustment, 6),
+            "autogpt_dynamic_sc": autogpt_dynamic_sc,
+            "autogpt_tool_calls": autogpt_tool_count,
+            "autogpt_event_count": autogpt_event_count,
         }
 
     def can_upgrade(self, new_gear: int) -> bool:
@@ -157,6 +203,9 @@ class FerrymanState:
                     "current_gear": self.current_gear,
                     "control_entropy": self.control_entropy,
                     "last_activity_time": self.last_activity_time,
+                    "autogpt_sc": self.autogpt_sc,
+                    "autogpt_event_count": self.autogpt_event_count,
+                    "autogpt_tool_calls": self.autogpt_tool_calls,
                 }, f, default=str)
         except Exception as e:
             logger.warning(f"save events failed: {e}")
@@ -169,6 +218,9 @@ class FerrymanState:
                 self.current_gear = data.get("current_gear", 1)
                 self.control_entropy = data.get("control_entropy", 0.0)
                 self.last_activity_time = data.get("last_activity_time", time.time())
+                self.autogpt_sc = data.get("autogpt_sc", 0.0)
+                self.autogpt_event_count = data.get("autogpt_event_count", 0)
+                self.autogpt_tool_calls = data.get("autogpt_tool_calls", 0)
         except FileNotFoundError:
             pass
         except Exception as e:
