@@ -37,6 +37,7 @@ class FerrymanState:
         self.autogpt_sc = 0.0
         self.autogpt_event_count = 0
         self.autogpt_tool_calls = 0
+        self.batch_approved = False
 
     def calculate_entropy(self, gear: int) -> float:
         return self.BASE_SC.get(gear, 0.0)

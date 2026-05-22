@@ -1078,7 +1078,41 @@
             text-align: center;
         }
 
-    </style>
+    
+/* batch confirm bar (ADAPT) */
+.batch-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: #2a2a1a;
+    border: 1px solid var(--gear-adapt, #e67e22);
+    border-radius: 6px;
+    margin: 8px 12px;
+    font-size: 13px;
+    color: var(--gear-adapt, #e67e22);
+}
+.batch-status button {
+    padding: 4px 12px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+}
+#batch-approve-btn { background: #2ecc71; color: #000; }
+#batch-stop-btn { background: #e74c3c; color: #fff; }
+
+/* notification message (LET_GO) */
+.message-notification {
+    background: #2a1a1a;
+    border-left: 3px solid #e74c3c;
+    padding: 8px 12px;
+    margin: 4px 0;
+    font-size: 13px;
+    color: #ff6b6b;
+}
+
+</style>
 </head>
 <body>
     <!-- 初始化遮罩 -->
@@ -1161,6 +1195,13 @@
                         你好，我是 EntropyGuard AI 助手。当前系统处于 EMBRACE 档位（完全约束模式）。
                     </div>
                 </div>
+                
+                <div id="batch-status" class="batch-status" style="display:none;">
+                    <span class="batch-count">已执行 <span id="batch-step-count">0</span> / 5 步</span>
+                    <button id="batch-approve-btn" onclick="batchApprove()">确认继续</button>
+                    <button id="batch-stop-btn" onclick="batchStop()">停止</button>
+                </div>
+
                 <div class="input-area">
                     <input type="text" id="chatInput" placeholder="输入问题..." onkeydown="if(event.key==='Enter')sendChat()">
                     <div class="autogpt-toggle" id="autogptToggle" onclick="toggleAutoGPTMode()">
@@ -1707,6 +1748,20 @@
                     badgeSpan.textContent = isBlocked ? '✗ 已拦截' : '✓ 已校验';
                     aiMsg.appendChild(badgeSpan);
 
+                    // 确认模式处理
+                    var confirmationMode = data.confirmation_mode || 'step_by_step';
+                    if (confirmationMode === 'step_by_step' && data.tool_calls && data.tool_calls.length > 0) {
+                        var toolAction = data.tool_calls[0].action || data.tool_calls[0].name || 'unknown';
+                        var confirmed = confirm('AI 要执行: ' + toolAction + '\n允许吗？');
+                        if (!confirmed) {
+                            try { await fetch('/api/reject-upgrade', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({reason: '用户拒绝工具调用'}) }); } catch(e) {}
+                            var sysDiv = document.createElement('div'); sysDiv.className = 'message system'; sysDiv.textContent = '用户拒绝了工具调用'; messages.appendChild(sysDiv);
+                            messages.scrollTop = messages.scrollHeight; return;
+                        }
+                    }
+                    if (confirmationMode === 'batch' && data.batch_info) { updateBatchStatus(data.batch_info); }
+                    if (confirmationMode === 'notify_on_error') { var bEl = document.getElementById('batch-status'); if(bEl) bEl.style.display='none'; }
+
                     // 处理升级申请
                     if (data.upgrade_request) {
                         showUpgradeModal(data.upgrade_request);
@@ -1728,7 +1783,71 @@
         }
 
         // ========== 多智能体对话 ==========
-        async function sendMultiAgent() {
+
+        // ========== confirmation helper functions ==========
+        function updateBatchStatus(batchInfo) {
+            var statusEl = document.getElementById('batch-status');
+            var countEl = document.getElementById('batch-step-count');
+            if (statusEl && countEl) {
+                statusEl.style.display = 'flex';
+                countEl.textContent = batchInfo.steps_since_last_confirm;
+            }
+        }
+
+        async function batchApprove() {
+            try {
+                await fetch('/api/batch-approve', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({approved: true})
+                });
+                document.getElementById('batch-status').style.display = 'none';
+                appendMessage('System', 'Batch confirmed, continue', 'system');
+            } catch(e) { console.error('batch approve error:', e); }
+        }
+
+        async function batchStop() {
+            try {
+                await fetch('/api/batch-approve', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({approved: false})
+                });
+                document.getElementById('batch-status').style.display = 'none';
+                appendMessage('System', 'Stopped, switch to EMBRACE', 'system');
+            } catch(e) { console.error('batch stop error:', e); }
+        }
+
+        async function checkNotifications() {
+            if (currentGear !== 4) return;
+            try {
+                var res = await fetch('/api/notifications?limit=3');
+                var data = await res.json();
+                if (data.count > 0) {
+                    var latest = data.notifications[0];
+                    var notifyMsg = document.createElement('div');
+                    notifyMsg.className = 'message-notification';
+                    notifyMsg.textContent = '⚠ ' + latest.type + ': ' + (latest.action || '');
+                    var msgs = document.getElementById('chatMessages');
+                    if (msgs) { msgs.appendChild(notifyMsg); msgs.scrollTop = msgs.scrollHeight; }
+                }
+            } catch(e) {}
+        }
+
+        setInterval(checkNotifications, 5000);
+
+        function appendMessage(sender, text, cls) {
+            var messages = document.getElementById('chatMessages');
+            if (!messages) return;
+            var msg = document.createElement('div');
+            msg.className = 'message ' + (cls || 'system');
+            msg.textContent = text;
+            messages.appendChild(msg);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+
+                async function sendMultiAgent() {
             const input = document.getElementById('multiInput');
             const text = input.value.trim();
             if (!text || isSending) return;

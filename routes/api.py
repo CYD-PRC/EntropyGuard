@@ -109,6 +109,7 @@ async def get_state():
             None
         ),
 
+        "confirmation_mode": "step_by_step" if state.current_gear <= 2 else ("batch" if state.current_gear == 3 else "notify_on_error"),
     }
 
 
@@ -685,9 +686,70 @@ async def ai_chat(request: Request):
 
 
 
+
+    # 确认模式：根据档位决定前端确认行为
+    if gear <= 2:
+        confirmation_mode = "step_by_step"
+    elif gear == 3:
+        confirmation_mode = "batch"
+    else:
+        confirmation_mode = "notify_on_error"
+    result["confirmation_mode"] = confirmation_mode
+
+    # ADAPT 档批量确认信息
+    if gear == 3:
+        tool_call_count = sum(1 for e in state.event_log if e.get("event_type") == "TOOL_CALL")
+        steps_since = tool_call_count % 5
+        result["batch_info"] = {
+            "steps_since_last_confirm": steps_since,
+            "next_confirm_at": 5 - steps_since,
+        }
+
     return JSONResponse(result)
 
 
+
+
+
+# ========== 确认粒度 API ==========
+
+@router.post("/api/batch-approve")
+async def batch_approve(request: Request):
+    data = await request.json()
+    approved = data.get("approved", True)
+    if approved:
+        state.batch_approved = True
+        return JSONResponse({
+            "success": True,
+            "message": "批量确认成功",
+            "steps_confirmed": 5,
+        })
+    else:
+        state.batch_approved = False
+        return JSONResponse({
+            "success": True,
+            "message": "已拒绝，切换到 EMBRACE 档位",
+        })
+
+
+@router.get("/api/notifications")
+async def get_notifications(request: Request):
+    limit = int(request.query_params.get("limit", 5))
+    notifications = []
+    for event in reversed(state.event_log[-50:]):
+        if event.get("event_type") in ["CIRCUIT_BREAKER", "ERROR", "SC_OVERFLOW", "TOOL_MISUSE"]:
+            notifications.append({
+                "timestamp": event.get("timestamp"),
+                "type": event.get("event_type"),
+                "action": event.get("action"),
+                "severity": "high" if event.get("event_type") == "CIRCUIT_BREAKER" else "medium",
+            })
+        if len(notifications) >= limit:
+                break
+    return JSONResponse({
+        "notifications": notifications,
+        "count": len(notifications),
+    })
 
 
 @router.post("/api/autonomy")
