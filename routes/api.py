@@ -21,6 +21,7 @@ EntropyGuard · REST API
 """
 
 import re
+import subprocess
 
 import uuid
 
@@ -198,7 +199,6 @@ async def autogpt_tool_call(request: Request):
         error = None
 
         try:
-            import subprocess
             import sys
 
             cmd = [sys.executable, "-c", f"""
@@ -1621,3 +1621,16 @@ async def multi_agent_task(request: Request):
 
 
     return JSONResponse(results)
+
+
+
+@router.get("/api/health")
+async def health_check(request: Request):
+    """Pure deterministic health indicators, no LLM dependency"""
+    try:
+        import os, json
+        output = os.popen("/usr/local/bin/entropyguard-healthcheck.sh 2>/dev/null").read()
+        data = json.loads(output)
+        return JSONResponse(data)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
