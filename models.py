@@ -62,36 +62,19 @@ import importlib.util as _importlib_util
 
 
 def _load_gear_prompts():
-    """加载 GEAR_PROMPTS 并校验 SHA-256，防止篡改"""
+    """加载 GEAR_PROMPTS（完整性校验由 systemd ExecStartPre 的 entropyguard-verify.py 保证）"""
     prompts_path = "/etc/entropyguard/gear_prompts.py"
-    hash_path = "/etc/entropyguard/gear_prompts.sha256"
 
-    # 读取预期 hash
-    try:
-        with open(hash_path, "r") as f:
-            expected_hash = f.read().strip().split()[0]
-    except FileNotFoundError:
-        logger.error("GEAR_PROMPTS hash file not found: %s", hash_path)
-        raise SystemExit("Security: GEAR_PROMPTS hash file missing")
-
-    # 计算实际 hash
-    with open(prompts_path, "rb") as f:
-        actual_hash = hashlib.sha256(f.read()).hexdigest()
-
-    # 校验
-    if actual_hash != expected_hash:
-        logger.error(
-            "GEAR_PROMPTS hash mismatch! Expected: %s, Got: %s",
-            expected_hash, actual_hash,
-        )
-        raise SystemExit("Security: GEAR_PROMPTS has been tampered with!")
+    if not os.path.exists(prompts_path):
+        logger.error("GEAR_PROMPTS not found at %s", prompts_path)
+        raise SystemExit("Security: GEAR_PROMPTS file missing")
 
     # 动态加载模块
     spec = _importlib_util.spec_from_file_location("gear_prompts", prompts_path)
     module = _importlib_util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    logger.info("GEAR_PROMPTS loaded and verified (hash: %s...)", actual_hash[:16])
+    logger.info("GEAR_PROMPTS loaded from %s", prompts_path)
     return module.GEAR_PROMPTS
 
 
