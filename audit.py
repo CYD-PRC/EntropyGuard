@@ -218,7 +218,11 @@ class FerrymanState:
     def _load_events(self):
         try:
             with open(Config.EVENTS_FILE, "r") as f:
-                data = json.load(f)
+                content = f.read().strip()
+                if not content:
+                    self.event_log = []
+                    return
+                data = json.loads(content)
                 self.event_log = data.get("events", [])
                 self.current_gear = data.get("current_gear", 1)
                 self.control_entropy = data.get("control_entropy", 0.0)
