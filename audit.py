@@ -2,6 +2,7 @@
 EntropyGuard · 审计核心
 FerrymanState：控制熵状态机 + SHA-256 审计链
 """
+import os
 import json
 import hashlib
 import math
@@ -201,8 +202,9 @@ class FerrymanState:
             return event
 
     def _save_events(self):
+        tmp_file = Config.EVENTS_FILE + ".tmp"
         try:
-            with open(Config.EVENTS_FILE, "w") as f:
+            with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump({
                     "events": self.event_log,
                     "current_gear": self.current_gear,
@@ -211,7 +213,8 @@ class FerrymanState:
                     "autogpt_sc": self.autogpt_sc,
                     "autogpt_event_count": self.autogpt_event_count,
                     "autogpt_tool_calls": self.autogpt_tool_calls,
-                }, f, default=str)
+                }, f, default=str, ensure_ascii=False)
+            os.replace(tmp_file, Config.EVENTS_FILE)
         except Exception as e:
             logger.warning(f"save events failed: {e}")
 
