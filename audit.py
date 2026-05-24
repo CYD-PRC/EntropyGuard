@@ -38,6 +38,10 @@ class FerrymanState:
         self.autogpt_event_count = 0
         self.autogpt_tool_calls = 0
         self.batch_approved = False
+        # 工具调用审批队列（四档体系）
+        self.pending_tool_calls = {}  # {id: {tool, args, context, status, timestamp, gear}}
+        self.batch_queue = []  # ADAPT 档的批量队列
+        self.batch_threshold = 5  # 每 N 步汇总一次
 
     def calculate_entropy(self, gear: int) -> float:
         return self.BASE_SC.get(gear, 0.0)

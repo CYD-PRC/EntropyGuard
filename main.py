@@ -56,6 +56,8 @@ setup_websocket(app)
 # ========== 前端页面 ==========
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+from fastapi.staticfiles import StaticFiles
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)
