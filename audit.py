@@ -239,6 +239,7 @@ class FerrymanState:
         """[Bug 1 fix] 线程安全的事件追加"""
         with self._lock:
             event["event_id"] = len(self.event_log) + 1
+            event["timestamp"] = event.get("timestamp", time.time())
             event["prev_hash"] = self.event_log[-1]["hash"] if self.event_log else "0" * 64
             event["hash"] = hashlib.sha256(
                 json.dumps(
