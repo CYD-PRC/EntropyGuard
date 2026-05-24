@@ -1112,6 +1112,102 @@
     color: #ff6b6b;
 }
 
+
+/* 工具调用审批面板 */
+.tool-panel {
+    background: var(--surface);
+    border: 1px solid #333;
+    border-radius: 8px;
+    margin: 12px 0;
+    overflow: hidden;
+}
+.tool-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    background: #1a1a2e;
+    border-bottom: 1px solid #333;
+}
+.tool-panel-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 600;
+}
+.tool-panel-count {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: #e74c3c;
+    animation: pulse 2s infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+.pending-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+.pending-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    border-bottom: 1px solid #222;
+    font-size: 13px;
+}
+.pending-item:last-child {
+    border-bottom: none;
+}
+.pending-tool {
+    font-family: 'DM Mono', monospace;
+    color: #e8c547;
+    font-weight: 600;
+}
+.pending-args {
+    font-family: 'DM Mono', monospace;
+    color: #888;
+    font-size: 11px;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pending-actions {
+    display: flex;
+    gap: 8px;
+}
+.btn-approve {
+    background: #2ecc71;
+    color: #000;
+    border: none;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: 'DM Mono', monospace;
+}
+.btn-approve:hover { background: #27ae60; }
+.btn-deny {
+    background: #e74c3c;
+    color: #fff;
+    border: none;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: 'DM Mono', monospace;
+}
+.btn-deny:hover { background: #c0392b; }
+.batch-panel { border-color: #e8c547; }
+.batch-actions {
+    display: flex;
+    gap: 12px;
+    padding: 12px 16px;
+    justify-content: flex-end;
+}
+
 </style>
 </head>
 <body>
@@ -1395,6 +1491,28 @@
             </div>
         </div>
     </div>
+
+    
+        <!-- 工具调用审批面板 -->
+        <div id="tool-approval-panel" class="tool-panel" style="display:none;">
+            <div class="tool-panel-header">
+                <span class="tool-panel-title">🔧 工具调用审批</span>
+                <span class="tool-panel-count" id="pending-count">0 待审批</span>
+            </div>
+            <div id="pending-calls-list" class="pending-list"></div>
+        </div>
+
+        <!-- ADAPT 批量审核面板 -->
+        <div id="batch-review-panel" class="tool-panel batch-panel" style="display:none;">
+            <div class="tool-panel-header">
+                <span class="tool-panel-title">📦 批量审核（ADAPT）</span>
+            </div>
+            <div id="batch-calls-list" class="pending-list"></div>
+            <div class="batch-actions">
+                <button class="btn-approve" onclick="batchApprove()">全部确认</button>
+                <button class="btn-deny" onclick="batchDeny()">拒绝并降级</button>
+            </div>
+        </div>
 
     <script>
         // ========== 全局状态 ==========
@@ -2203,7 +2321,119 @@
         }
         setInterval(updateAutoGPTActivity, 2000);
 
-    </script>
+    
+// ============ 工具调用审批轮询 ============
+let pendingPollInterval = null;
+
+function startPendingPoll() {
+    if (pendingPollInterval) return;
+    pendingPollInterval = setInterval(pollPendingCalls, 2000);
+}
+
+function stopPendingPoll() {
+    if (pendingPollInterval) {
+        clearInterval(pendingPollInterval);
+        pendingPollInterval = null;
+    }
+}
+
+async function pollPendingCalls() {
+    try {
+        const res = await fetch('/api/pending-tool-calls');
+        const data = await res.json();
+
+        const panel = document.getElementById('tool-approval-panel');
+        const batchPanel = document.getElementById('batch-review-panel');
+        const list = document.getElementById('pending-calls-list');
+        const batchList = document.getElementById('batch-calls-list');
+        const count = document.getElementById('pending-count');
+
+        if (data.pending && data.pending.length > 0) {
+            panel.style.display = 'block';
+            count.textContent = data.pending.length + ' 待审批';
+            list.innerHTML = data.pending.map(tc => `
+                <div class="pending-item" id="tc-${tc.id}">
+                    <div>
+                        <span class="pending-tool">${tc.tool}</span>
+                        <span class="pending-args">${tc.args || ''}</span>
+                    </div>
+                    <div class="pending-actions">
+                        <button class="btn-approve" onclick="approveCall('${tc.id}', true)">允许</button>
+                        <button class="btn-deny" onclick="approveCall('${tc.id}', false)">拒绝</button>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            panel.style.display = 'none';
+        }
+
+        if (data.batch_queue && data.batch.length >= (data.batch_threshold || 5)) {
+            batchPanel.style.display = 'block';
+            batchList.innerHTML = data.batch_queue.map(tc => `
+                <div class="pending-item">
+                    <div>
+                        <span class="pending-tool">${tc.tool}</span>
+                        <span class="pending-args">${tc.args || ''}</span>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            batchPanel.style.display = 'none';
+        }
+    } catch (e) {
+        // silent fail
+    }
+}
+
+async function approveCall(callId, approved) {
+    try {
+        await fetch(`/api/tool-call/${callId}/approve`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ approved: approved, reason: approved ? '' : '用户拒绝' })
+        });
+        const el = document.getElementById(`tc-${callId}`);
+        if (el) el.remove();
+        pollPendingCalls();
+    } catch (e) {
+        console.error('approve failed:', e);
+    }
+}
+
+async function batchApprove() {
+    try {
+        await fetch('/api/batch-review', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({approved: true})
+        });
+        pollPendingCalls();
+    } catch (e) {
+        console.error('batch approve failed:', e);
+    }
+}
+
+async function batchDeny() {
+    if (!confirm('拒绝将切换到 EMBRACE 档位（逐步确认），确定？')) return;
+    try {
+        await fetch('/api/batch-review', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({approved: false})
+        });
+        pollPendingCalls();
+        if (typeof updateGearDisplay === 'function') updateGearDisplay();
+    } catch (e) {
+        console.error('batch deny failed:', e);
+    }
+}
+
+// 页面加载时启动轮询
+document.addEventListener('DOMContentLoaded', () => {
+    startPendingPoll();
+});
+
+</script>
 </body>
 </html>
 

@@ -1634,3 +1634,208 @@ async def health_check(request: Request):
         return JSONResponse(data)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# =============================================================================
+# 工具调用拦截 API（四档确认体系）
+# =============================================================================
+import uuid
+import time as _time
+
+
+@router.post("/api/tool-call")
+async def tool_call_request(request: Request):
+    """
+    AutoGPT 提交工具调用请求。
+    根据当前档位返回 allow / pending / deny。
+    """
+    data = await request.json()
+    tool_name = data.get("tool", "unknown")
+    tool_args = data.get("args", "")
+    context = data.get("context", "")
+    caller = data.get("caller", "autogpt")
+
+    call_id = str(uuid.uuid4())[:8]
+    gear = state.current_gear
+    timestamp = _time.time()
+
+    # 记录事件
+    state.append_event({
+        "event_type": "TOOL_CALL_REQUEST",
+        "actor": caller,
+        "action": f"{tool_name}({tool_args[:100]})",
+        "proposer": caller,
+    })
+
+    # 根据档位决定行为
+    if gear <= 2:
+        # EMBRACE / CONSULT: 需要人类确认
+        state.pending_tool_calls[call_id] = {
+            "id": call_id,
+            "tool": tool_name,
+            "args": tool_args,
+            "context": context,
+            "status": "pending",
+            "timestamp": timestamp,
+            "gear": gear,
+        }
+        return JSONResponse({
+            "status": "pending",
+            "id": call_id,
+            "message": f"等待人类确认: {tool_name}",
+            "gear": gear,
+        })
+
+    elif gear == 3:
+        # ADAPT: 自动放行，每 N 步汇总
+        state.batch_queue.append({
+            "id": call_id,
+            "tool": tool_name,
+            "args": tool_args,
+            "timestamp": timestamp,
+        })
+
+        needs_review = len(state.batch_queue) >= state.batch_threshold
+
+        state.append_event({
+            "event_type": "TOOL_CALL_AUTO_ALLOW",
+            "actor": caller,
+            "action": f"{tool_name}({tool_args[:100]})",
+            "proposer": "system",
+        })
+
+        response = {
+            "status": "allow",
+            "id": call_id,
+            "message": f"ADAPT 自动放行: {tool_name}",
+            "batch_count": len(state.batch_queue),
+        }
+
+        if needs_review:
+            response["batch_review_needed"] = True
+            response["batch_summary"] = [
+                {"tool": item["tool"], "args": item["args"][:80]}
+                for item in state.batch_queue
+            ]
+
+        return JSONResponse(response)
+
+    else:
+        # LET_GO: 完全放行
+        state.append_event({
+            "event_type": "TOOL_CALL_AUTO_ALLOW",
+            "actor": caller,
+            "action": f"{tool_name}({tool_args[:100]})",
+            "proposer": "system",
+        })
+        return JSONResponse({
+            "status": "allow",
+            "id": call_id,
+            "message": f"LET_GO 自动放行: {tool_name}",
+        })
+
+
+@router.get("/api/tool-call/{call_id}/status")
+async def tool_call_status(call_id: str):
+    """AutoGPT 轮询工具调用的审批状态"""
+    tc = state.pending_tool_calls.get(call_id)
+    if not tc:
+        return JSONResponse({"status": "not_found"}, status_code=404)
+    return JSONResponse({
+        "id": call_id,
+        "status": tc["status"],
+        "tool": tc["tool"],
+        "args": tc["args"][:100],
+    })
+
+
+@router.post("/api/tool-call/{call_id}/approve")
+async def tool_call_approve(call_id: str, request: Request):
+    """人类在前端批准/拒绝工具调用"""
+    data = await request.json()
+    approved = data.get("approved", True)
+    reason = data.get("reason", "")
+
+    tc = state.pending_tool_calls.get(call_id)
+    if not tc:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    if approved:
+        tc["status"] = "approved"
+        state.append_event({
+            "event_type": "TOOL_CALL_APPROVED",
+            "actor": "human",
+            "action": f"Approved {tc['tool']}({tc['args'][:100]})",
+            "proposer": "human",
+        })
+    else:
+        tc["status"] = "denied"
+        tc["deny_reason"] = reason
+        state.append_event({
+            "event_type": "TOOL_CALL_DENIED",
+            "actor": "human",
+            "action": f"Denied {tc['tool']}: {reason}",
+            "proposer": "human",
+        })
+
+    return JSONResponse({"id": call_id, "status": tc["status"]})
+
+
+@router.post("/api/batch-review")
+async def batch_review(request: Request):
+    """ADAPT 档位的批量审核"""
+    data = await request.json()
+    approved = data.get("approved", True)
+
+    if approved:
+        state.append_event({
+            "event_type": "BATCH_APPROVED",
+            "actor": "human",
+            "action": f"Approved {len(state.batch_queue)} tool calls",
+            "proposer": "human",
+        })
+        state.batch_queue.clear()
+        return JSONResponse({"status": "approved", "message": "批量确认成功"})
+    else:
+        state.append_event({
+            "event_type": "BATCH_DENIED",
+            "actor": "human",
+            "action": "Denied batch, switching to EMBRACE",
+            "proposer": "human",
+        })
+        state.batch_queue.clear()
+        state.current_gear = 1
+        return JSONResponse({"status": "denied", "message": "已切换到 EMBRACE 档"})
+
+
+@router.get("/api/pending-tool-calls")
+async def pending_tool_calls_endpoint(request: Request):
+    """前端获取所有待审批的工具调用"""
+    pending = [
+        {
+            "id": tc["id"],
+            "tool": tc["tool"],
+            "args": tc["args"][:200],
+            "context": tc.get("context", "")[:200],
+            "timestamp": tc["timestamp"],
+            "gear": tc["gear"],
+        }
+        for tc in state.pending_tool_calls.values()
+        if tc["status"] == "pending"
+    ]
+    batch = [
+        {
+            "tool": item["tool"],
+            "args": item["args"][:200],
+            "timestamp": item["timestamp"],
+        }
+        for item in state.batch_queue
+    ]
+    return JSONResponse({
+        "pending": pending,
+        "batch_queue": batch,
+        "confirmation_mode": (
+            "step_by_step" if state.current_gear <= 2
+            else ("batch" if state.current_gear == 3 else "notify_on_error")
+        ),
+    })
