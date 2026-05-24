@@ -201,14 +201,17 @@ async def autogpt_tool_call(request: Request):
         try:
             import sys
 
-            cmd = [sys.executable, "-c", f"""
-import sys
-sys.path.insert(0, '/root/AutoGPT/source')
+            import json as _json
+            safe_payload = _json.dumps({"command": command, "args": args})
+            cmd = [sys.executable, "-c", """
+import sys, json
+sys.path.insert(0, "/root/AutoGPT/source")
 from autogpt.entropy_guard import audit_command
 
-result = audit_command(command='{command}', args={args})
+payload = json.loads(sys.argv[1])
+result = audit_command(command=payload["command"], args=payload["args"])
 print(result)
-"""]
+""", safe_payload]
 
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
