@@ -46,6 +46,20 @@ EntropyGuard 是一个 AI 权限审计框架，基于 EEAL 协议（EMBRACE → 
 | 2 | 输出校验 | 验证 AI 输出是否符合当前档位权限 |
 | 3 | 审计链 | SHA-256 追加哈希链，防篡改 |
 
+## Agent Integrations
+
+EntropyGuard provides integrations for multiple AI agent frameworks:
+
+| Project | Agent Framework | Status |
+|----------|-----------------|--------|
+| [EntropyGuard](https://github.com/CYD-PRC/EntropyGuard) | Core security runtime | ✅ Active |
+| [entropyguard-for-hermes](https://github.com/CYD-PRC/entropyguard-for-hermes) | Hermes Agent | ✅ Active |
+| entropyguard-for-autogpt | AutoGPT | 🚧 WIP |
+
+> Want to build an integration for your agent framework? Open an issue!
+
+---
+
 ## 快速开始
 
 ### 环境要求
