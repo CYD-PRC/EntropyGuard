@@ -197,6 +197,10 @@ EntropyGuard/
 │   └── mirror_of_the_other.html # 哲学展示
 ├── docs/
 │   └── THREE_MODEL_BENCHMARK.md  # 五模型对照实验报告
+├── deployment/              # 🚀 部署配置（Docker + 安全加固 + 红队）
+│   ├── docker/              # Dockerfile, docker-compose.yml, seccomp-profile.json
+│   ├── security/           # entropyguard-network-policy.sh, sandbox-etc/
+│   └── scripts/           # deploy_verify.sh, run_redteam_suite.sh
 ├── events.json             # 审计事件持久化
 ├── .env                    # API Keys（不提交到 GitHub）
 └── entropyguard.service    # systemd 服务配置
