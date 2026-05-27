@@ -1,0 +1,13 @@
+.env
+.env.*
+*.pyc
+__pycache__
+.git
+.gitignore
+*.md
+auto_gpt_workspace/
+logs/
+source/.env
+source/.env.*
+source/.envrc
+
