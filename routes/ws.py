@@ -1,5 +1,5 @@
 """
-EntropyGuard · WebSocket
+Entropy Runtime · WebSocket
 实时状态同步
 """
 from fastapi import WebSocket, WebSocketDisconnect

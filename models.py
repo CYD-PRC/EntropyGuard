@@ -1,5 +1,5 @@
 """
-EntropyGuard · 模型层
+Entropy Runtime · 模型层
 模型注册表 + GEAR_PROMPTS + gear_aware_call + 升级申请解析
 """
 import os
@@ -14,7 +14,7 @@ from config import Config, GEAR_MAP
 from audit import state
 from tools import TOOL_DEFINITIONS, GEAR_TOOLS, dispatch_tool
 
-logger = logging.getLogger("entropyguard")
+logger = logging.getLogger("entropyruntime")
 
 
 # ========== 模型注册表 ==========
@@ -50,7 +50,6 @@ MODEL_REGISTRY = {
         "model": "mimo-v2.5",
         "key_env": "MIMO_API_KEY",
         "host": "api.xiaomimimo.com",
-        "api_key": "sk-ce1jfzaj15uffb0po58wpmcp64s060dt8zm2iu2bwb5z354n",
     },
 }
 
@@ -83,7 +82,7 @@ GEAR_PROMPTS = _load_gear_prompts()
 
 # ========== 异步 HTTP 客户端 ==========
 
-_http_client = httpx.AsyncClient(timeout=60.0, verify=False)
+_http_client = httpx.AsyncClient(timeout=60.0, verify=True)
 
 
 # ========== 核心调用函数 ==========

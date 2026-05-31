@@ -1,5 +1,5 @@
 """
-EntropyGuard · 约束规则注册中心
+Entropy Runtime · 约束规则注册中心
 支持来自不同参与方（human、AI、system）的约束提案，经确认后生效。
 """
 
@@ -43,8 +43,10 @@ class ConstraintRegistry:
             return True
         try:
             return bool(c["rule_fn"](**kwargs))
-        except Exception:
-            return True  # 规则执行异常时不阻断
+        except Exception as e:
+            import logging
+            logging.getLogger("entropyruntime").warning(f"Constraint '{name}' check raised exception: {e}")
+            return False  # 规则执行异常时阻断（安全默认值）
 
     def list_active(self) -> list:
         """列出所有激活的约束。"""

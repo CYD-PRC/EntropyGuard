@@ -1,5 +1,5 @@
 """
-EntropyGuard · 记忆持久化层
+Entropy Runtime · 记忆持久化层
 留言板 + 会话摘要 + 跨会话记忆
 """
 import json
@@ -10,7 +10,7 @@ from datetime import datetime
 
 from config import Config, GEAR_MAP
 
-logger = logging.getLogger("entropyguard")
+logger = logging.getLogger("entropyruntime")
 
 MEMORY_FILE = os.path.join(Config.DATA_DIR, "memory.json")
 

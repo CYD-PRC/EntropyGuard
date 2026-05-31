@@ -1,5 +1,5 @@
 """
-EntropyGuard · 工具层
+Entropy Runtime · 工具层
 工具定义 + 执行器 + MCP 集成
 """
 import asyncio
@@ -9,8 +9,9 @@ import requests
 import logging
 
 from config import Config
+from messageboard import get_messageboard
 
-logger = logging.getLogger("entropyguard")
+logger = logging.getLogger("entropyruntime")
 
 
 # ========== MCP Server 配置 ==========
@@ -80,19 +81,27 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "read_board",
-            "description": "读取多智能体留言板上的所有消息。",
-            "parameters": {"type": "object", "properties": {}, "required": []}
+            "description": "读取多智能体留言板消息。可选按 session_id 过滤。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "会话 ID, 用于过滤特定会话的消息"}
+                },
+                "required": []
+            }
         }
     },
     {
         "type": "function",
         "function": {
             "name": "write_board",
-            "description": "在多智能体留言板上写一条消息，会被审计链记录。",
+            "description": "在多智能体留言板上写一条消息, 会被审计链记录。支持指定目标智能体和会话。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "content": {"type": "string", "description": "消息内容"}
+                    "content": {"type": "string", "description": "消息内容"},
+                    "to_agent": {"type": "string", "description": "目标智能体名称, 默认 'board'"},
+                    "session_id": {"type": "string", "description": "会话 ID, 用于消息分组"}
                 },
                 "required": ["content"]
             }
@@ -219,18 +228,48 @@ def execute_list_mcp_tools(server: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
-def execute_read_board() -> dict:
-    from memory import MemoryStore
+# ========== MessageBoard 留言板工具（v2: 迁移到 MessageBoard） ==========
+
+def execute_read_board(session_id: str = None) -> dict:
+    """读取留言板消息, 支持按 session_id 过滤"""
     try:
-        memories = MemoryStore.get_recent(limit=10)
-        return {"success": True, "messages": memories, "total": len(memories)}
+        board = get_messageboard()
+        all_msgs = board.get_inbox("board", limit=50)
+        if session_id:
+            msgs = [
+                m for m in all_msgs
+                if (m.get("metadata") or {}).get("session_id") == session_id
+            ]
+        else:
+            msgs = all_msgs
+        return {"success": True, "messages": msgs, "total": len(msgs)}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
-def execute_write_board(content: str, model: str, gear: int) -> dict:
-    from memory import MemoryStore
-    return MemoryStore.add(content=content, msg_type="manual_note", model=model, gear=gear)
+def execute_write_board(content: str, model: str, gear: int,
+                        actor: str = None, to_agent: str = "board",
+                        session_id: str = None) -> dict:
+    """写入留言板消息, 使用 MessageBoard 的签名 + 优先级队列"""
+    board = get_messageboard()
+    src = actor or model or "unknown"
+    msg_id = board.send(
+        from_agent=src,
+        to_agent=to_agent,
+        message_type="board_message",
+        content={"text": content},
+        priority=5,
+        metadata={
+            "model": model,
+            "gear": gear,
+            "session_id": session_id,
+        }
+    )
+    return {
+        "success": True,
+        "message_id": msg_id,
+        "board_total": len(board.messages),
+    }
 
 
 async def dispatch_tool(tool_name: str, arguments: dict) -> dict:
@@ -244,12 +283,15 @@ async def dispatch_tool(tool_name: str, arguments: dict) -> dict:
             body=arguments.get("body"),
         )
     elif tool_name == "read_board":
-        return await asyncio.to_thread(execute_read_board)
+        return await asyncio.to_thread(execute_read_board, arguments.get("session_id"))
     elif tool_name == "write_board":
         return await asyncio.to_thread(execute_write_board,
             arguments.get("content", ""),
             arguments.get("model", "unknown"),
             arguments.get("gear", 0),
+            arguments.get("actor"),
+            arguments.get("to_agent", "board"),
+            arguments.get("session_id"),
         )
     elif tool_name == "mcp_call":
         return await asyncio.to_thread(execute_mcp,
@@ -261,4 +303,3 @@ async def dispatch_tool(tool_name: str, arguments: dict) -> dict:
         return await asyncio.to_thread(execute_list_mcp_tools, arguments.get("server", ""))
     else:
         return {"success": False, "error": f"未知工具：{tool_name}"}
-

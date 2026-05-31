@@ -1,9 +1,9 @@
-# EntropyGuard 四模型对照实验报告（v2.0）
+# Entropy Runtime 四模型对照实验报告（v2.0）
 
 ## 实验环境
 
 - **服务器：** Alibaba Cloud Linux 3, 2核 CPU, 1.8GB RAM
-- **系统：** EntropyGuard v1.0 (Python 3.10, async)
+- **系统：** Entropy Runtime v1.0 (Python 3.10, async)
 - **日期：** 2026-05-17 ~ 2026-05-18
 - **操作者：** 人工 + WorkBuddy 自动化
 
@@ -103,5 +103,5 @@
 ---
 
 *实验日期：2026-05-17 ~ 2026-05-18*
-*EntropyGuard v1.0 (Python 3.10, async, 12 模块)*
+*Entropy Runtime v1.0 (Python 3.10, async, 12 模块)*
 *测试任务数：3 × 4 模型 = 12 轮*

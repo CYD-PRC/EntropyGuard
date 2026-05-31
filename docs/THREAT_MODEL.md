@@ -1,4 +1,4 @@
-# EntropyGuard Threat Model
+# Entropy Runtime Threat Model
 
 **Version:** 1.0
 **Date:** 2026-05-23
@@ -13,10 +13,10 @@
 | Asset | Location | Sensitivity | Protection |
 |-------|----------|------------|------------|
 | LLM API keys | `/root/.env` | **High** | Docker non-mount + `env_file` injection + `chmod 600` |
-| GEAR_PROMPTS | `/etc/entropyguard/gear_prompts.py` | **High** | SHA-256 + systemd ExecStartPre verification |
-| Verifier | `/usr/local/bin/entropyguard-verify.py` | **High** | HMAC signature + wrapper script |
-| Audit log | `/root/EntropyGuard/events.json` | **High** | `chattr +a` + backup every 5 min |
-| HMAC key | `/etc/entropyguard/hmac.key` | **Critical** | `chmod 600` root-only |
+| GEAR_PROMPTS | `/etc/entropyruntime/gear_prompts.py` | **High** | SHA-256 + systemd ExecStartPre verification |
+| Verifier | `/usr/local/bin/entropyruntime-verify.py` | **High** | HMAC signature + wrapper script |
+| Audit log | `/root/Entropy Runtime/events.json` | **High** | `chattr +a` + backup every 5 min |
+| HMAC key | `/etc/entropyruntime/hmac.key` | **Critical** | `chmod 600` root-only |
 | SSH access | Port 2222, Ed25519 key | **Critical** | Key-only auth, password disabled |
 | Host filesystem | Entire server | **Critical** | Docker isolation + iptables + fail2ban |
 
@@ -30,7 +30,7 @@ Internet
     |
     +-- SSH (2222) -- key auth -- host shell
     |
-    +-- HTTP (80) -- Nginx -- Gunicorn -- EntropyGuard API
+    +-- HTTP (80) -- Nginx -- Gunicorn -- Entropy Runtime API
                                             |
                                 +-----------+-----------+
                                 |           |           |
@@ -52,7 +52,7 @@ Internet
 | Component | Trust Level | Rationale |
 |-----------|-------------|-----------|
 | Host root | Full trust | Administrator |
-| EntropyGuard API (gunicorn) | High trust | Runs as root, all operations audited |
+| Entropy Runtime API (gunicorn) | High trust | Runs as root, all operations audited |
 | Docker container (AutoGPT) | **Low trust** | non-root + read-only fs + network isolation |
 | LLM models (DeepSeek/Qwen/Kimi) | **No trust** | Susceptible to prompt injection |
 | External network | No trust | Potential attacker presence |
@@ -79,7 +79,7 @@ Internet
 
 ## 5. Non-Goals
 
-The following are **explicitly out of scope** for EntropyGuard:
+The following are **explicitly out of scope** for Entropy Runtime:
 
 - **Linux kernel 0day / container escape 0day** — requires kernel-level defense
 - **Physical access attacks** — out of scope for software-only defense

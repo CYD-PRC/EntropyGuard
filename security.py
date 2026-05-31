@@ -1,5 +1,5 @@
 """
-EntropyGuard · 安全层
+Entropy Runtime · 安全层
 Layer 0: 输入意图预检
 Shell 命令白名单 + 危险模式拦截
 """

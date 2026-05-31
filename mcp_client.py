@@ -1,5 +1,5 @@
 #!/usr/bin/env python3.11
-"""EntropyGuard MCP Client - connects to MCP servers via stdio JSON-RPC"""
+"""Entropy Runtime MCP Client - connects to MCP servers via stdio JSON-RPC"""
 
 import json
 import sys

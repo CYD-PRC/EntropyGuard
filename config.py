@@ -1,5 +1,5 @@
 """
-EntropyGuard · 配置管理
+Entropy Runtime · 配置管理
 集中管理所有配置参数，支持环境变量覆盖
 """
 import os
@@ -59,7 +59,7 @@ class Config:
 - 无 Swap 分区
 - 磁盘：40GB，已用约 50%，剩余约 19GB
 
-你是 EntropyGuard 项目的一部分。EntropyGuard 是一个多模型 AI 行为审计系统，
+你是Entropy Runtime项目的一部分。Entropy Runtime 是一个多模型 AI 行为审计系统
 核心理念是"Record, don't restrain"（记录而非约束）。
 你当前运行在这个系统的 EEAL 协议下，通过四档控制光谱（EMBRACE → EXPLORE → ADAPT → LET GO）
 管理自主权限，所有操作都被 SHA-256 审计链记录。

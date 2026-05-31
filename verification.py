@@ -1,5 +1,5 @@
 """
-EntropyGuard · 输出校验层
+Entropy Runtime · 输出校验层
 Layer 2: 硬约束，检测 AI 输出是否超出当前档位权限
 """
 from config import Config, GEAR_MAP
@@ -40,6 +40,11 @@ VERIFICATION_RULES = {
             "自动交易", "批量发送", "批量删除",
             "永久删除", "不可逆", "格式化",
             "大额转账", "全部资产", "所有文件",
+            # [P1 fix] 危险命令特征 — AI 回复中提及这些命令即触发升级
+            "rm -rf", "mkfs", "dd if=", "chmod 777",
+            "curl | sh", "wget | sh", "bash -i",
+            "nc -e", "/dev/tcp/", "base64 -d",
+            "chmod -R 777", "> /dev/sd",
         ],
         "action": "block_and_upgrade",
         "target_gear": 4,

@@ -1,5 +1,5 @@
 """
-EntropyGuard · 审计核心
+Entropy Runtime · 审计核心
 FerrymanState：控制熵状态机 + SHA-256 审计链
 """
 import os
@@ -13,7 +13,7 @@ from datetime import datetime
 
 from config import Config, GEAR_MAP
 
-logger = logging.getLogger("entropyguard")
+logger = logging.getLogger("entropyruntime")
 
 
 class FerrymanState:

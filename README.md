@@ -1,10 +1,10 @@
-# EntropyGuard
+# Entropy Runtime
 
 让 AI 的自主程度看得见、管得住、说得清。
 
-## 什么是 EntropyGuard
+## 什么是 Entropy Runtime
 
-EntropyGuard 是一个 AI 权限审计框架，基于 EEAL 协议（EMBRACE → EXPLORE → ADAPT → LET_GO）实现四档自主权管理。它不是限制 AI 的工具，而是让 AI 的不安全行为变得可见、可量化、可追溯。
+Entropy Runtime 是一个 AI 权限审计框架，基于 EEAL 协议（EMBRACE → EXPLORE → ADAPT → LET_GO）实现四档自主权管理。它不是限制 AI 的工具，而是让 AI 的不安全行为变得可见、可量化、可追溯。
 
 核心理念：**Record, don't restrain.**
 
@@ -48,13 +48,13 @@ EntropyGuard 是一个 AI 权限审计框架，基于 EEAL 协议（EMBRACE → 
 
 ## Agent Integrations
 
-EntropyGuard provides integrations for multiple AI agent frameworks:
+Entropy Runtime provides integrations for multiple AI agent frameworks:
 
 | Project | Agent Framework | Status |
 |----------|-----------------|--------|
-| [EntropyGuard](https://github.com/CYD-PRC/EntropyGuard) | Core security runtime | ✅ Active |
-| [entropyguard-for-hermes](https://github.com/CYD-PRC/entropyguard-for-hermes) | Hermes Agent | ✅ Active |
-| entropyguard-for-autogpt | AutoGPT | 🚧 WIP |
+| [Entropy Runtime](https://github.com/CYD-PRC/Entropy Runtime) | Core security runtime | ✅ Active |
+| [entropyruntime-for-hermes](https://github.com/CYD-PRC/entropyruntime-for-hermes) | Hermes Agent | ✅ Active |
+| entropyruntime-for-autogpt | AutoGPT | 🚧 WIP |
 
 > Want to build an integration for your agent framework? Open an issue!
 
@@ -71,8 +71,8 @@ EntropyGuard provides integrations for multiple AI agent frameworks:
 
 ```bash
 # 克隆仓库
-git clone https://github.com/CYD-PRC/EntropyGuard.git
-cd EntropyGuard
+git clone https://github.com/CYD-PRC/Entropy Runtime.git
+cd Entropy Runtime
 
 # 安装依赖
 pip install fastapi uvicorn gunicorn requests httpx matplotlib
@@ -99,10 +99,10 @@ MIMO_API_KEY=your_key_here
 python main.py
 
 # 或用 systemd（生产）
-sudo cp entropyguard.service /etc/systemd/system/
+sudo cp entropyruntime.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable entropyguard
-sudo systemctl start entropyguard
+sudo systemctl enable entropyruntime
+sudo systemctl start entropyruntime
 ```
 
 ### 访问
@@ -176,7 +176,7 @@ BASE_SC 初始值：EMBRACE=0.0, EXPLORE=0.25, ADAPT=0.75, LET_GO=1.5
 ## 项目结构
 
 ```
-EntropyGuard/
+Entropy Runtime/
 ├── main.py                 # FastAPI 应用入口（67 行）
 ├── app.py                  # 旧 Flask 应用（已弃用）
 ├── models.py               # 模型注册 + gear_aware_call（476 行）
@@ -203,7 +203,7 @@ EntropyGuard/
 │   └── scripts/           # deploy_verify.sh, run_redteam_suite.sh
 ├── events.json             # 审计事件持久化
 ├── .env                    # API Keys（不提交到 GitHub）
-└── entropyguard.service    # systemd 服务配置
+└── entropyruntime.service    # systemd 服务配置
 ```
 
 ## 实验数据
@@ -212,9 +212,9 @@ EntropyGuard/
 
 ## EEAL 协议
 
-EntropyGuard 是 EEAL 协议的参考实现。
+Entropy Runtime 是 EEAL 协议的参考实现。
 
-协议规范：https://github.com/CYD-PRC/EntropyGuard/blob/main/docs/
+协议规范：https://github.com/CYD-PRC/Entropy Runtime/blob/main/docs/
 
 ## License
 

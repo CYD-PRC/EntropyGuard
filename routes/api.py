@@ -1,6 +1,6 @@
 """
 
-EntropyGuard · REST API
+Entropy Runtime · REST API
 
 所有 HTTP 端点
 
@@ -20,6 +20,7 @@ EntropyGuard · REST API
 
 """
 
+import os
 import re
 import subprocess
 
@@ -37,7 +38,7 @@ from datetime import datetime
 
 
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fastapi.responses import JSONResponse
 
@@ -61,11 +62,40 @@ from routes.ws import active_connections
 
 
 
-logger = logging.getLogger("entropyguard")
+logger = logging.getLogger("entropyruntime")
 
 
 
-router = APIRouter()
+# ========== API Token 认证 ==========
+
+API_TOKEN = os.environ.get("ENTROPY_RUNTIME_API_KEY", "")
+
+
+async def verify_api_token(request: Request):
+    """验证 API Token（从 Authorization header 或 X-API-Key header 读取）"""
+    if not API_TOKEN:
+        # 未配置时跳过认证（兼容开发环境）
+        return True
+
+    auth_header = request.headers.get("Authorization", "")
+    api_key_header = request.headers.get("X-API-Key", "")
+
+    token = ""
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+    elif api_key_header:
+        token = api_key_header
+
+    if not token or token != API_TOKEN:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized: 无效或缺失 API Token。请通过 Authorization: Bearer <token> 或 X-API-Key: <token> 传递。",
+        )
+
+    return True
+
+
+router = APIRouter(dependencies=[Depends(verify_api_token)])
 
 
 
@@ -1631,10 +1661,21 @@ async def multi_agent_task(request: Request):
 async def health_check(request: Request):
     """Pure deterministic health indicators, no LLM dependency"""
     try:
-        import os, json
-        output = os.popen("/usr/local/bin/entropyguard-healthcheck.sh 2>/dev/null").read()
-        data = json.loads(output)
+        import json
+        result = subprocess.run(
+            ["/usr/local/bin/entropyruntime-healthcheck.sh"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode != 0:
+            return JSONResponse({"error": result.stderr.strip() or "healthcheck failed"}, status_code=500)
+        data = json.loads(result.stdout)
         return JSONResponse(data)
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "invalid healthcheck output"}, status_code=500)
+    except FileNotFoundError:
+        return JSONResponse({"error": "healthcheck script not found"}, status_code=500)
+    except subprocess.TimeoutExpired:
+        return JSONResponse({"error": "healthcheck timed out"}, status_code=500)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -1807,7 +1848,7 @@ async def batch_review(request: Request):
             "proposer": "human",
         })
         state.batch_queue.clear()
-        state.current_gear = 1
+        state.switch_gear(1, "down", "api")
         return JSONResponse({"status": "denied", "message": "已切换到 EMBRACE 档"})
 
 
