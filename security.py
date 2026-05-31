@@ -3,10 +3,83 @@ Entropy Runtime · 安全层
 Layer 0: 输入意图预检
 Shell 命令白名单 + 危险模式拦截
 """
+import base64
 import re
+import unicodedata
 from typing import Tuple
 
 from config import Config, GEAR_MAP
+
+
+# ========== 解码预处理 (v2.1) ==========
+
+def _decode_preprocess(text: str) -> str:
+    """
+    对文本进行解码预处理：
+    1. 提取并解码 base64 编码的字符串
+    2. 提取并解码 hex 编码的字符串
+    3. NFKC 规范化 Unicode（全角→半角转换）
+
+    返回原始文本 + 解码后的文本（用于信号匹配）
+    """
+    if not text:
+        return ""
+
+    decoded_parts = [text]
+
+    # 1. 提取并解码 base64 字符串
+    b64_patterns = [
+        r'echo\s+([A-Za-z0-9+/=]{8,})\|base64',
+        r'([A-Za-z0-9+/=]{8,})\s*\|base64',
+        r'base64\s+-d\s*<<<\s*["\']?([A-Za-z0-9+/=]+)["\']?',
+    ]
+    for pat in b64_patterns:
+        for m in re.finditer(pat, text, re.IGNORECASE):
+            try:
+                decoded = base64.b64decode(m.group(1)).decode('utf-8', errors='replace')
+                if decoded and len(decoded) > 2:
+                    decoded_parts.append(decoded)
+            except Exception:
+                pass
+
+    # 独立 base64 块（长度 ≥ 12）
+    for m in re.finditer(r'([A-Za-z0-9+/=]{12,})', text):
+        try:
+            decoded = base64.b64decode(m.group(1)).decode('utf-8', errors='replace')
+            if decoded and any(c in decoded for c in (' ', '/', '.', '-', '|')):
+                decoded_parts.append(decoded)
+        except Exception:
+            pass
+
+    # 2. 提取并解码 hex 字符串
+    hex_patterns = [
+        r"echo\s+'([0-9a-fA-F]{8,})'\s*\|\s*xxd",
+        r'([0-9a-fA-F]{8,})\s*\|\s*xxd',
+    ]
+    for pat in hex_patterns:
+        for m in re.finditer(pat, text):
+            try:
+                decoded = bytes.fromhex(m.group(1)).decode('utf-8', errors='replace')
+                if decoded and len(decoded) > 2:
+                    decoded_parts.append(decoded)
+            except Exception:
+                pass
+
+    # 3. NFKC 规范化 Unicode
+    nfkc_normalized = unicodedata.normalize('NFKC', text)
+    if nfkc_normalized != text:
+        decoded_parts.append(nfkc_normalized)
+
+    # 去重
+    seen = set()
+    result_parts = []
+    for part in decoded_parts:
+        normalized = part.strip().lower()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            result_parts.append(part)
+
+    return "\n".join(result_parts)
 
 
 # ========== Shell 安全 ==========
@@ -67,39 +140,44 @@ def validate_command(command: str) -> Tuple[bool, str]:
     if not stripped:
         return False, "空命令"
 
-    # 受保护路径
-    cmd_lower = stripped.lower()
-    for protected in PROTECTED_PATHS:
-        if protected.lower() in cmd_lower:
-            return False, f"安全限制：禁止访问受保护路径 '{protected}'"
+    # [v2.1] 解码预处理：对命令进行 base64/hex/unicode 解码后也做安全校验
+    decoded = _decode_preprocess(stripped)
+    check_texts = [stripped, decoded] if decoded != stripped else [stripped]
 
-    # 危险正则
-    for pattern in BLOCKED_REGEX:
-        if pattern.search(stripped):
-            return False, f"命令匹配危险模式: {pattern.pattern}"
+    for check_text in check_texts:
+        # 受保护路径
+        cmd_lower = check_text.lower()
+        for protected in PROTECTED_PATHS:
+            if protected.lower() in cmd_lower:
+                return False, f"安全限制：禁止访问受保护路径 '{protected}'"
 
-    # 拆分复合命令
-    separators = ["|", "&&", "||", ";", "$(", "`", "$(("]
-    commands_to_check = [stripped]
-    for sep in separators:
-        new_commands = []
+        # 危险正则
+        for pattern in BLOCKED_REGEX:
+            if pattern.search(check_text):
+                return False, f"命令匹配危险模式: {pattern.pattern}"
+
+        # 拆分复合命令
+        separators = ["|", "&&", "||", ";", "$(", "`", "$(("]
+        commands_to_check = [check_text]
+        for sep in separators:
+            new_commands = []
+            for cmd in commands_to_check:
+                for part in cmd.split(sep):
+                    part = part.strip()
+                    if part:
+                        new_commands.append(part)
+            commands_to_check = new_commands
+
+        # 白名单检查
         for cmd in commands_to_check:
-            for part in cmd.split(sep):
-                part = part.strip()
-                if part:
-                    new_commands.append(part)
-        commands_to_check = new_commands
-
-    # 白名单检查
-    for cmd in commands_to_check:
-        cmd_stripped = cmd.strip()
-        if not cmd_stripped:
-            continue
-        first_token = cmd_stripped.split()[0].lower().lstrip("(")
-        if "/" in first_token:
-            first_token = first_token.split("/")[-1]
-        if first_token not in ALLOWED_COMMANDS:
-            return False, f"命令 '{first_token}' 不在白名单中"
+            cmd_stripped = cmd.strip()
+            if not cmd_stripped:
+                continue
+            first_token = cmd_stripped.split()[0].lower().lstrip("(")
+            if "/" in first_token:
+                first_token = first_token.split("/")[-1]
+            if first_token not in ALLOWED_COMMANDS:
+                return False, f"命令 '{first_token}' 不在白名单中"
 
     return True, ""
 
@@ -148,10 +226,11 @@ INTENT_SIGNALS = {
 
 def check_input_intent(message: str, current_gear: int) -> dict:
     """Layer 0: 扫描用户输入，检测需要更高权限的意图"""
-    message_lower = message.lower()
+    # [v2.1] 解码预处理：对用户输入进行 base64/hex/unicode 解码后也做意图检测
+    message_decoded = _decode_preprocess(message)
+    message_lower = message_decoded.lower()
 
-    # 代码执行优先判断 — 只要包含代码相关关键词，直接判为需要 ADAPT 权限
-    # 优先级最高，不会被后面的规则覆盖
+    # 代码执行优先判断
     code_keywords = [
         "python", "代码", "脚本", "script", "code interpreter",
         "执行代码", "运行代码", "跑代码",
@@ -186,4 +265,15 @@ def check_input_intent(message: str, current_gear: int) -> dict:
             "reason": matched_reason,
             "matched_signal": matched_signal,
         }
+
+    # 兜底：对原始消息也做一次检查
+    orig_lower = message.lower()
+    if any(kw in orig_lower for kw in code_keywords) and current_gear < 3:
+        return {
+            "needs_upgrade": True,
+            "target_gear": 3,
+            "reason": "涉及代码执行，需要 ADAPT 权限",
+            "matched_signal": next(kw for kw in code_keywords if kw in orig_lower),
+        }
+
     return {"needs_upgrade": False}

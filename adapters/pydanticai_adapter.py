@@ -171,12 +171,10 @@ class PydanticAIAdapter(AgentAdapter):
             success = False
 
         # [Audit] 自动写入审计链 — 格式与 AutoGPTAdapter 一致
-        risk_score = "low"
-        task_lower = task.lower()
-        if any(kw in task_lower for kw in ["rm ", "chmod ", "dd ", "mkfs", "> /dev/", "sudo", "su "]):
-            risk_score = "high"
-        elif any(kw in task_lower for kw in ["python -c", "eval(", "exec(", "base64 -d"]):
-            risk_score = "medium"
+        # [v2.1] 复用 verification.py 判别风险等级
+        from verification import verify_output
+        vresult = verify_output(task, gear)
+        risk_score = "high" if not vresult["allowed"] else "low"
 
         state.append_event({
             "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -240,12 +238,10 @@ class PydanticAIAdapter(AgentAdapter):
                    "gear_name": GEAR_MAP.get(gear, {}).get("name", "UNKNOWN")}
 
             # [Audit] 流式完成后自动写入审计链
-            risk_score = "low"
-            task_lower = task.lower()
-            if any(kw in task_lower for kw in ["rm ", "chmod ", "dd ", "mkfs", "> /dev/", "sudo", "su "]):
-                risk_score = "high"
-            elif any(kw in task_lower for kw in ["python -c", "eval(", "exec(", "base64 -d"]):
-                risk_score = "medium"
+            # [v2.1] 复用 verification.py 判别风险等级
+            from verification import verify_output
+            vresult = verify_output(task, gear)
+            risk_score = "high" if not vresult["allowed"] else "low"
 
             state.append_event({
                 "timestamp": datetime.utcnow().isoformat() + "Z",
