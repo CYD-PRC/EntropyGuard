@@ -364,7 +364,22 @@ class MultiAgentOrchestrator:
             # 替换尾部逗号（JSON5 兼容）
             json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
 
-            items = json.loads(json_str)
+            # [v3.2 fix] 健壮 JSON 解析：处理 DeepSeek 输出的各种非标准格式
+            try:
+                items = json.loads(json_str)
+            except json.JSONDecodeError:
+                # Fallback 1: 若字符串内含有未转义换行，替换为 \n
+                # 正则匹配字符串内的换行：在引号对之间的 \n 替换为空格
+                fixed = re.sub(r'(?<=[^\\])"(?:[^"\\]|\\.)*"',
+                               lambda m: m.group(0).replace('\n', ' ').replace('\r', ''),
+                               json_str)
+                try:
+                    items = json.loads(fixed)
+                except json.JSONDecodeError:
+                    # Fallback 2: 移除所有换行（JSON 不需要换行作为语法）
+                    flat = json_str.replace('\n', ' ').replace('\r', ' ')
+                    flat = re.sub(r'\s{2,}', ' ', flat)
+                    items = json.loads(flat)
             if not isinstance(items, list):
                 items = [items]
 
