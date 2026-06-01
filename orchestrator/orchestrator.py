@@ -275,9 +275,385 @@ class MultiAgentOrchestrator:
     #  1. 目标拆解
     # ----------------------------------------------------------------
 
+    # ----------------------------------------------------------------
+    #  三层降级：DeepSeek → Qwen → 本地规则
+    # ----------------------------------------------------------------
+
+    def _call_qwen(self, system_prompt: str, user_prompt: str,
+                   timeout: int = 30) -> Optional[str]:
+        """
+        调用通义千问 Qwen-Max API（阿里云 DashScope）。
+        作为第二层降级，在 DeepSeek 不可用时自动启用。
+
+        Args:
+            system_prompt: 系统提示词
+            user_prompt: 用户提示词
+            timeout: API 超时时间（秒）
+
+        Returns:
+            API 返回的文本内容，或 None（失败时）
+        """
+        api_key = "sk-e84cc5dc7d9d409b82b4709e1b5d2509"
+        base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        model = "qwen-max"
+
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.3,
+            "max_tokens": 2000,
+        }
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            f"{base_url}/chat/completions",
+            data=body, method="POST"
+        )
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Authorization", f"Bearer {api_key}")
+
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                result = json.loads(resp.read().decode())
+                content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                if content:
+                    logger.info("[Orchestrator] Qwen-Max 拆解成功")
+                    return content
+                logger.warning("[Orchestrator] Qwen-Max 返回空内容")
+                return None
+        except Exception as e:
+            logger.warning(f"[Orchestrator] Qwen-Max API 调用失败: {e}")
+            return None
+
+    def _local_rule_decompose(self, goal: str) -> list[AgentTask]:
+        """
+        纯本地规则拆解（第三层降级）。
+        不调用任何 LLM，通过正则和关键词匹配从 goal 中提取信息，
+        生成 2-3 个标准子任务：读取 → 分析 → 报告。
+
+        Args:
+            goal: 用户目标描述（自然语言）
+
+        Returns:
+            子任务列表（至少 2 个）
+        """
+        logger.info("[Orchestrator] 使用本地规则拆解目标")
+
+        goal_lower = goal.lower()
+
+        # ── 提取目标路径 ──
+        # 文件路径
+        file_paths = re.findall(r'(?:/[\w./\-]+)+\.(?:py|json|yaml|yml|toml|cfg|conf|txt|md|html|js|ts|css|sh)',
+                                goal)
+        # 目录路径
+        dir_paths = re.findall(r'(?:/[\w./\-]+)+', goal)
+        # IP 地址
+        ips = re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', goal)
+        # URL
+        urls = re.findall(r'https?://[^\s)\]]+', goal)
+
+        target_path = file_paths[0] if file_paths else (
+            dir_paths[0] if dir_paths else "/root/EntropyGuard"
+        )
+
+        # ── 识别任务类型 ──
+        is_security_scan = any(kw in goal_lower for kw in [
+            "安全", "security", "扫描", "scan", "漏洞", "vuln", "脆弱",
+            "vulnerability", "渗透", "penetration", "审计", "audit"
+        ])
+        is_code_review = any(kw in goal_lower for kw in [
+            "代码", "code", "审查", "review", "审计代码", "静态分析",
+            "static analysis", "lint", "源文件", "source"
+        ])
+        is_dep_check = any(kw in goal_lower for kw in [
+            "依赖", "dependency", "dependency", "package", "requirements",
+            "库", "library", "safety", "pip"
+        ])
+        is_port_scan = any(kw in goal_lower for kw in [
+            "端口", "port", "nmap", "端口扫描", "open port"
+        ])
+        is_report = any(kw in goal_lower for kw in [
+            "报告", "report", "报表", "生成报告", "summary", "汇总"
+        ])
+
+        # ── 识别执行方式 ──
+        # 工具密集型任务 → hermes
+        tool_keywords = ["nmap", "bandit", "curl", "wget", "pip", "safety",
+                         "git", "docker", "kubectl", "ssh", "scp"]
+        is_tool_heavy = any(kw in goal_lower for kw in tool_keywords)
+
+        # ── 生成标准子任务 ──
+        tasks = []
+        prefix = "task"
+
+        # 任务1: 读取/探索目标（依赖：无）
+        if file_paths:
+            tasks.append(AgentTask(
+                id=f"{prefix}-explore-directory",
+                description=f"读取目标路径 {target_path} 的文件结构和关键内容",
+                intent=f"explore directory {target_path}: list all files, read key source files, "
+                       f"identify entry points and configuration files",
+                dependencies=[],
+                priority=1,
+                assigned_agent="hermes" if is_tool_heavy else "pydanticai",
+                gear=DEFAULT_GEAR,
+            ))
+        elif ips:
+            tasks.append(AgentTask(
+                id=f"{prefix}-explore-directory",
+                description=f"探测目标 IP {ips[0]} 的开放端口和服务",
+                intent=f"scan target {ips[0]} for open ports and running services",
+                dependencies=[],
+                priority=1,
+                assigned_agent="hermes",
+                gear=DEFAULT_GEAR,
+            ))
+        elif urls:
+            tasks.append(AgentTask(
+                id=f"{prefix}-explore-directory",
+                description=f"对目标 URL {urls[0]} 进行 HTTP 探测",
+                intent=f"perform HTTP probe on {urls[0]}, check headers and response",
+                dependencies=[],
+                priority=1,
+                assigned_agent="hermes",
+                gear=DEFAULT_GEAR,
+            ))
+        else:
+            tasks.append(AgentTask(
+                id=f"{prefix}-explore-directory",
+                description=f"探索项目目录 {target_path}，了解整体结构",
+                intent=f"explore project directory at {target_path}, list structure and identify components",
+                dependencies=[],
+                priority=1,
+                assigned_agent="hermes",
+                gear=DEFAULT_GEAR,
+            ))
+
+        # 任务2: 核心分析（依赖：任务1）
+        if is_security_scan:
+            tasks.append(AgentTask(
+                id=f"{prefix}-security-analysis",
+                description=f"对 {target_path} 执行安全分析，识别漏洞和风险",
+                intent=f"perform security analysis on {target_path}: check for common vulnerabilities, "
+                       f"misconfigurations, and security weaknesses. Run bandit if available.",
+                dependencies=[f"{prefix}-explore-directory"],
+                priority=2,
+                assigned_agent="hermes" if is_tool_heavy else "pydanticai",
+                gear=DEFAULT_GEAR,
+            ))
+        elif is_code_review:
+            tasks.append(AgentTask(
+                id=f"{prefix}-code-review",
+                description=f"对 {target_path} 执行代码审查，检查代码质量和安全问题",
+                intent=f"review source code in {target_path}: check for code quality issues, "
+                       f"security vulnerabilities, and best practices",
+                dependencies=[f"{prefix}-explore-directory"],
+                priority=2,
+                assigned_agent="pydanticai",
+                gear=DEFAULT_GEAR,
+            ))
+        elif is_dep_check:
+            tasks.append(AgentTask(
+                id=f"{prefix}-dependency-check",
+                description=f"检查 {target_path} 的依赖安全状况",
+                intent=f"check dependencies in {target_path}: run pip list or pip-audit, "
+                       f"identify outdated or vulnerable packages",
+                dependencies=[f"{prefix}-explore-directory"],
+                priority=2,
+                assigned_agent="hermes",
+                gear=DEFAULT_GEAR,
+            ))
+        elif is_port_scan:
+            tasks.append(AgentTask(
+                id=f"{prefix}-vuln-analysis",
+                description=f"基于端口扫描结果分析漏洞",
+                intent=f"analyze open ports and services from the port scan results, "
+                       f"identify potential vulnerabilities and known CVEs",
+                dependencies=[f"{prefix}-explore-directory"],
+                priority=2,
+                assigned_agent="pydanticai",
+                gear=DEFAULT_GEAR,
+            ))
+        else:
+            # 通用分析
+            tasks.append(AgentTask(
+                id=f"{prefix}-analyze",
+                description=f"分析 {target_path} 的结构和内容",
+                intent=f"analyze the structure and content of {target_path}, "
+                       f"identify key components, data flows, and potential issues",
+                dependencies=[f"{prefix}-explore-directory"],
+                priority=2,
+                assigned_agent="pydanticai",
+                gear=DEFAULT_GEAR,
+            ))
+
+        # 任务3: 生成报告（依赖：任务2）
+        if is_report:
+            report_desc = "生成安全评估报告"
+            report_intent = f"generate comprehensive security assessment report for {target_path}: "
+            if is_security_scan:
+                report_intent += "summarize all findings with severity levels, CVE references, and remediation recommendations"
+            elif is_code_review:
+                report_intent += "summarize code review findings with line numbers, severity, and suggested fixes"
+            elif is_dep_check:
+                report_intent += "summarize dependency vulnerabilities with CVE IDs, severity, and upgrade paths"
+            else:
+                report_intent += "summarize all analysis results in a structured format"
+        else:
+            report_desc = f"汇总分析结果生成结构化报告"
+            report_intent = f"generate a structured report summarizing all findings from {target_path}: "
+            report_intent += "output in markdown format with sections for each analysis area"
+
+        tasks.append(AgentTask(
+            id=f"{prefix}-generate-report",
+            description=report_desc,
+            intent=report_intent,
+            dependencies=[tasks[-1].id],  # 依赖上一个任务（任务2）
+            priority=5,
+            assigned_agent="pydanticai",
+            gear=DEFAULT_GEAR,
+        ))
+
+        logger.info(f"[Orchestrator] 本地规则拆解完成: {len(tasks)}个子任务")
+        for t in tasks:
+            logger.info(f"  {t.id}: 依赖={t.dependencies}, agent={t.assigned_agent}")
+        return tasks
+
+    def _parse_decompose_response(self, raw: str, goal: str) -> Optional[list[AgentTask]]:
+        """
+        解析 LLM 拆解返回的 JSON 字符串为 AgentTask 列表。
+        支持 Markdown 代码块、非标准 JSON 等格式。
+
+        Args:
+            raw: LLM 返回的原始响应文本
+            goal: 原始用户目标（降级时使用）
+
+        Returns:
+            AgentTask 列表，或 None（解析失败时）
+        """
+        if not raw or not raw.strip():
+            return None
+
+        try:
+            # 去除 markdown 代码块标记
+            cleaned = raw.strip()
+            if "```" in cleaned:
+                cleaned = re.sub(r'```(?:json)?\s*', '', cleaned)
+                cleaned = re.sub(r'\s*```', '', cleaned)
+            # 提取 JSON 数组（第一个 [ 到最后一个 ]）
+            json_match = re.search(r'\[[\s\S]*\]', cleaned)
+            if json_match:
+                json_str = json_match.group()
+            else:
+                json_str = cleaned
+
+            json_str = json_str.strip()
+            # 替换尾部逗号（JSON5 兼容）
+            json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
+
+            # 健壮 JSON 解析
+            try:
+                items = json.loads(json_str)
+            except json.JSONDecodeError:
+                # Fallback 1: 处理字符串内的未转义换行
+                fixed = re.sub(
+                    r'(?<=[^\\])"(?:[^"\\]|\\.)*"',
+                    lambda m: m.group(0).replace('\n', ' ').replace('\r', ''),
+                    json_str
+                )
+                try:
+                    items = json.loads(fixed)
+                except json.JSONDecodeError:
+                    # Fallback 2: 移除所有换行
+                    flat = json_str.replace('\n', ' ').replace('\r', ' ')
+                    flat = re.sub(r'\s{2,}', ' ', flat)
+                    items = json.loads(flat)
+
+            if not isinstance(items, list):
+                items = [items]
+
+            tasks = []
+            for i, item in enumerate(items[:MAX_TASKS]):
+                task_id = item.get("task_id", f"task-{i+1:03d}")
+
+                # 处理中文/非标准 agent 映射
+                expected_agent = item.get("expected_agent")
+                if expected_agent and expected_agent not in ("pydanticai", "autogpt", "hermes", None):
+                    # 中文 agent 名称映射
+                    agent_lower = expected_agent.lower()
+                    if any(kw in agent_lower for kw in ["网络", "系统", "工具", "shell", "terminal", "command"]):
+                        expected_agent = "hermes"
+                    elif any(kw in agent_lower for kw in ["推理", "分析", "评估", "安全", "审计", "审查", "代码"]):
+                        expected_agent = "pydanticai"
+                    else:
+                        expected_agent = "pydanticai"
+
+                # 处理中文 priority
+                priority = item.get("priority", 5)
+                if isinstance(priority, str):
+                    p_lower = priority.lower()
+                    if p_lower in ("高", "紧急", "最高", "1", "critical", "high", "highest"):
+                        priority = 1
+                    elif p_lower in ("中", "一般", "normal", "medium", "5"):
+                        priority = 5
+                    elif p_lower in ("低", "低优先级", "low", "lowest", "10"):
+                        priority = 10
+                    else:
+                        try:
+                            priority = int(priority)
+                        except (ValueError, TypeError):
+                            priority = 5
+                else:
+                    try:
+                        priority = int(priority) if priority is not None else 5
+                    except (ValueError, TypeError):
+                        priority = 5
+
+                # 处理依赖关系
+                dependencies = item.get("dependencies", [])
+                if not isinstance(dependencies, list):
+                    dependencies = [dependencies] if dependencies else []
+
+                task = AgentTask(
+                    id=task_id,
+                    description=item.get("description", ""),
+                    intent=item.get("intent", goal),
+                    dependencies=dependencies,
+                    priority=priority,
+                    requires_approval=item.get("requires_approval", False),
+                    gear=min(max(item.get("gear", DEFAULT_GEAR), 1), 4),
+                    assigned_agent=expected_agent,
+                    payload=item,
+                )
+                # 安全检查
+                if task.requires_approval and task.gear >= 3:
+                    task.gear = 1
+                tasks.append(task)
+
+            if not tasks:
+                return None
+
+            # 验证依赖一致性
+            all_ids = {t.id for t in tasks}
+            for t in tasks:
+                t.dependencies = [d for d in t.dependencies if d in all_ids]
+
+            return tasks
+
+        except Exception as e:
+            logger.warning(f"[Orchestrator] 拆解响应解析失败: {e}")
+            return None
+
     def decompose(self, goal: str) -> list[AgentTask]:
         """
-        用 DeepSeek 将用户目标拆解为子任务列表（v3.2 依赖图版本）。
+        将用户目标拆解为子任务列表（三层降级策略）。
+
+        降级链路:
+          1. DeepSeek V4 Flash API  → 最优先，高质量拆解
+          2. Qwen-Max API           → 第一降级，阿里云通义千问
+          3. 本地规则               → 第二降级，纯正则+关键词，无需网络
 
         返回 AgentTask 列表（最多 MAX_TASKS 条），每条包含：
           - task_id: 唯一标识（如 "task-scan-ports"）
@@ -286,8 +662,6 @@ class MultiAgentOrchestrator:
           - dependencies: 前置任务 ID 列表（空数组表示无依赖）
           - expected_agent: 建议执行的 Agent（pydanticai/autogpt/hermes）
           - priority: 优先级 1-10
-
-        [v3-alpha.1] 降级：API 不可用时，将整个目标作为一个任务。
         """
         system_prompt = """你是一个任务分解和依赖分析专家，负责将用户目标拆解为有序、可执行的子任务。
 
@@ -330,105 +704,45 @@ class MultiAgentOrchestrator:
 
         user_prompt = f"请将以下目标拆解为有依赖关系的子任务: {goal}"
 
+        # ── 第一层：DeepSeek V4 Flash ──
+        logger.info("[Orchestrator] 第一层拆解: DeepSeek V4 Flash")
         raw = self._call_deepseek(system_prompt, user_prompt)
-        if not raw:
-            # 降级：将整个目标作为一个任务
-            logger.warning("[Orchestrator] DeepSeek 不可用，降级为单任务模式")
-            return [
-                AgentTask(
-                    id="task-001",
-                    description="(降级) 完整目标作为单一任务",
-                    intent=goal,
-                    priority=5,
-                    gear=DEFAULT_GEAR,
-                )
-            ]
+        if raw:
+            tasks = self._parse_decompose_response(raw, goal)
+            if tasks:
+                logger.info(f"[Orchestrator] DeepSeek 拆解成功: {len(tasks)}个子任务")
+                return tasks
+            logger.warning("[Orchestrator] DeepSeek 响应解析失败")
 
-        try:
-            # 尝试从响应中提取 JSON 数组
-            # [v3.2] 加强 JSON 提取：去除 markdown 代码块标记、去除注释、处理尾部逗号
-            cleaned = raw.strip()
-            # 脱去 ```json ... ``` 包装
-            if "```" in cleaned:
-                cleaned = re.sub(r'```(?:json)?\s*', '', cleaned)
-                cleaned = re.sub(r'\s*```', '', cleaned)
-            # 脱去可能的中文/英文说明文字（取第一个 [ 到最后一个 ]）
-            json_match = re.search(r'\[[\s\S]*\]', cleaned)
-            if json_match:
-                json_str = json_match.group()
-            else:
-                json_str = cleaned
+        # ── 第二层：Qwen-Max ──
+        logger.info("[Orchestrator] 第二层拆解: Qwen-Max (阿里云)")
+        raw = self._call_qwen(system_prompt, user_prompt)
+        if raw:
+            tasks = self._parse_decompose_response(raw, goal)
+            if tasks:
+                logger.info(f"[Orchestrator] Qwen-Max 拆解成功: {len(tasks)}个子任务")
+                return tasks
+            logger.warning("[Orchestrator] Qwen-Max 响应解析失败")
 
-            # 修复常见的非标准 JSON 问题
-            json_str = json_str.strip()
-            # 替换尾部逗号（JSON5 兼容）
-            json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
-
-            # [v3.2 fix] 健壮 JSON 解析：处理 DeepSeek 输出的各种非标准格式
-            try:
-                items = json.loads(json_str)
-            except json.JSONDecodeError:
-                # Fallback 1: 若字符串内含有未转义换行，替换为 \n
-                # 正则匹配字符串内的换行：在引号对之间的 \n 替换为空格
-                fixed = re.sub(r'(?<=[^\\])"(?:[^"\\]|\\.)*"',
-                               lambda m: m.group(0).replace('\n', ' ').replace('\r', ''),
-                               json_str)
-                try:
-                    items = json.loads(fixed)
-                except json.JSONDecodeError:
-                    # Fallback 2: 移除所有换行（JSON 不需要换行作为语法）
-                    flat = json_str.replace('\n', ' ').replace('\r', ' ')
-                    flat = re.sub(r'\s{2,}', ' ', flat)
-                    items = json.loads(flat)
-            if not isinstance(items, list):
-                items = [items]
-
-            tasks = []
-            for i, item in enumerate(items[:MAX_TASKS]):
-                task_id = item.get("task_id", f"task-{i+1:03d}")
-                dependencies = item.get("dependencies", [])
-                if not isinstance(dependencies, list):
-                    dependencies = [dependencies] if dependencies else []
-
-                expected_agent = item.get("expected_agent")
-                priority = item.get("priority", 5)
-
-                task = AgentTask(
-                    id=task_id,
-                    description=item.get("description", ""),
-                    intent=item.get("intent", goal),
-                    dependencies=dependencies,
-                    priority=priority,
-                    requires_approval=item.get("requires_approval", False),
-                    gear=min(max(item.get("gear", DEFAULT_GEAR), 1), 4),
-                    assigned_agent=expected_agent,
-                    payload=item,
-                )
-                # 安全检查：如果 requires_approval，降到 EMBRACE 档位等待审批
-                if task.requires_approval and task.gear >= 3:
-                    task.gear = 1
-                tasks.append(task)
-
-            if not tasks:
-                logger.warning("[Orchestrator] 拆解结果为空，降级为单任务")
-                return [AgentTask(id="task-001", description="(降级) 完整目标", intent=goal)]
-
-            # 验证依赖一致性：所有引用的依赖 ID 必须在任务列表中
-            all_ids = {t.id for t in tasks}
-            for t in tasks:
-                for dep_id in t.dependencies:
-                    if dep_id not in all_ids:
-                        logger.warning(
-                            f"[Orchestrator] 任务 {t.id} 依赖 {dep_id} 不存在，已忽略"
-                        )
-                        t.dependencies.remove(dep_id)
-
-            logger.info(f"[Orchestrator] 拆解完成: {len(tasks)}个子任务")
+        # ── 第三层：本地规则（兜底） ──
+        logger.info("[Orchestrator] 第三层拆解: 本地规则（兜底）")
+        tasks = self._local_rule_decompose(goal)
+        if tasks:
+            logger.info(f"[Orchestrator] 本地规则拆解成功: {len(tasks)}个子任务")
             return tasks
 
-        except (json.JSONDecodeError, Exception) as e:
-            logger.warning(f"[Orchestrator] 任务拆解 JSON 解析失败: {e}, raw={raw[:200]}")
-            return [AgentTask(id="task-001", description="(降级) 完整目标", intent=goal)]
+        # ── 终极兜底：单任务模式 ──
+        logger.warning("[Orchestrator] 所有拆解层级均失败，降级为单任务模式")
+        return [
+            AgentTask(
+                id="task-001",
+                description="(降级) 完整目标作为单一任务",
+                intent=goal,
+                priority=5,
+                gear=DEFAULT_GEAR,
+            )
+        ]
+
 
     # ----------------------------------------------------------------
     #  3. 统一执行（通过 /api/chat）
