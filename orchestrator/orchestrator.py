@@ -221,14 +221,35 @@ class MultiAgentOrchestrator:
         conflict_log: list[str] = []
         task_output_map: dict[str, str] = {}  # task_id → output (用于上下文注入)
 
+        # [v3.6] 读取前序 episode 注入当前任务上下文
+        recent_episodes = self._read_recent_episodes(limit=10)
+        if recent_episodes:
+            episode_summary_lines = []
+            for ep in recent_episodes:
+                c = ep.get("content", {})
+                ep_id = c.get("task_id", "?")
+                ep_agent = c.get("agent", "?")
+                ep_ok = "✅" if c.get("success") else "❌"
+                ep_preview = (c.get("output_preview", "") or "")[:80]
+                ep_summary = f"  [{ep_ok}] {ep_id} @ {ep_agent}: {ep_preview}"
+                episode_summary_lines.append(ep_summary)
+            episode_summary = "\n".join(episode_summary_lines)
+        else:
+            episode_summary = ""
+
         for task in sorted_tasks:
-            # 构建上下文（注入前置任务输出）
+            # 构建上下文（注入前置任务和最近 episode）
             context = self._build_context(task, task_output_map)
+            combined_context = ""
+            if episode_summary:
+                combined_context += f"[前序执行记录]\n{episode_summary}\n\n"
             if context:
-                logger.info(f"[Orchestrator v3.2] {task.id}: 注入 {len(context)} 个前置任务上下文")
+                combined_context += f"[前置任务输出]\n{context}"
+            if combined_context:
+                logger.info(f"[Orchestrator v3.6] {task.id}: 注入上下文（episode + 前置任务）")
                 original_intent = task.intent
                 task.intent = (
-                    f"[上下文信息]\n{context}\n\n"
+                    f"{combined_context}\n\n"
                     f"[本次任务]\n{original_intent}"
                 )
                 task.payload["original_intent"] = original_intent
@@ -780,41 +801,46 @@ class MultiAgentOrchestrator:
         Returns:
             TaskResult: 执行结果
         """
+        result: TaskResult
         if task.assigned_agent == "hermes":
-            return self._execute_hermes(task)
+            result = self._execute_hermes(task)
+        else:
+            # 默认：通过 /api/chat 执行（给 pydanticai 双倍超时，工具调用密集型）
+            timeout = 240 if task.assigned_agent in ("autogpt",) else 120
+            payload = {
+                "message": task.intent,
+                "gear": task.gear,
+                "model_id": task.model_id or DEFAULT_MODEL,
+                "actor": f"orchestrator:{task.assigned_agent or 'unknown'}",
+                "session_id": f"orch-{task.id}",
+            }
 
-        # 默认：通过 /api/chat 执行（给 pydanticai 双倍超时，工具调用密集型）
-        timeout = 240 if task.assigned_agent in ("autogpt",) else 120
-        payload = {
-            "message": task.intent,
-            "gear": task.gear,
-            "model_id": task.model_id or DEFAULT_MODEL,
-            "actor": f"orchestrator:{task.assigned_agent or 'unknown'}",
-            "session_id": f"orch-{task.id}",
-        }
+            resp = _api_request("/api/chat", payload, timeout=timeout)
 
-        resp = _api_request("/api/chat", payload, timeout=timeout)
+            success = resp.get("success", False)
+            if not success:
+                result = TaskResult(
+                    task_id=task.id,
+                    success=False,
+                    error=resp.get("error", "API 调用失败"),
+                    agent=task.assigned_agent,
+                    gear=task.gear,
+                    validation_status=resp.get("validation_status"),
+                )
+            else:
+                result = TaskResult(
+                    task_id=task.id,
+                    success=True,
+                    output=resp.get("reply", ""),
+                    tool_calls=resp.get("tool_calls", []) or [],
+                    agent=task.assigned_agent,
+                    gear=task.gear,
+                    validation_status=resp.get("validation_status", "none"),
+                )
 
-        success = resp.get("success", False)
-        if not success:
-            return TaskResult(
-                task_id=task.id,
-                success=False,
-                error=resp.get("error", "API 调用失败"),
-                agent=task.assigned_agent,
-                gear=task.gear,
-                validation_status=resp.get("validation_status"),
-            )
-
-        return TaskResult(
-            task_id=task.id,
-            success=True,
-            output=resp.get("reply", ""),
-            tool_calls=resp.get("tool_calls", []) or [],
-            agent=task.assigned_agent,
-            gear=task.gear,
-            validation_status=resp.get("validation_status", "none"),
-        )
+        # [v3.6] 写入 MessageBoard episode 记忆
+        self._write_episode(result)
+        return result
 
     # ----------------------------------------------------------------
     #  3b. Hermes 子进程执行（绕过 LLM）
@@ -1269,6 +1295,57 @@ class MultiAgentOrchestrator:
             },
         }
         _api_request(endpoint, payload)
+
+    # ----------------------------------------------------------------
+    #  [v3.6] MessageBoard episode 桥接
+    # ----------------------------------------------------------------
+
+    def _write_episode(self, result: TaskResult):
+        """将任务执行结果写入 MessageBoard episode 记忆"""
+        try:
+            duration = result.elapsed_seconds if result.elapsed_seconds else 0.0
+            content = {
+                "task_id": result.task_id,
+                "agent": result.agent or "unknown",
+                "success": result.success,
+                "output_preview": result.output[:200] if result.output else "",
+                "error": result.error,
+                "duration": duration,
+            }
+            payload = {
+                "memory_type": "episode",
+                "content": content,
+                "source": f"orchestrator:{result.agent or 'unknown'}",
+                "ttl": 0,
+            }
+            req = urllib.request.Request(
+                f"{ENTROPY_API_BASE}/api/messageboard/memory",
+                data=json.dumps(payload).encode("utf-8"),
+                method="POST",
+            )
+            req.add_header("Content-Type", "application/json")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                resp_data = json.loads(resp.read().decode())
+                if resp_data.get("success"):
+                    logger.debug(f"[Orchestrator v3.6] episode 已写入: {result.task_id}")
+        except Exception as e:
+            logger.warning(f"[Orchestrator v3.6] MessageBoard episode 写入失败: {e}")
+
+    @staticmethod
+    def _read_recent_episodes(limit: int = 10) -> list[dict]:
+        """从 MessageBoard 读取最近 N 条 episode 记忆"""
+        try:
+            req = urllib.request.Request(
+                f"{ENTROPY_API_BASE}/api/messageboard/memory/episode?limit={limit}",
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                resp_data = json.loads(resp.read().decode())
+                if resp_data.get("success"):
+                    return resp_data.get("memories", [])
+        except Exception as e:
+            logger.warning(f"[Orchestrator v3.6] 读取 episode 失败: {e}")
+        return []
 
 
 # ========== 便捷入口 ==========
