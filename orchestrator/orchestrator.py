@@ -309,9 +309,9 @@ class MultiAgentOrchestrator:
             except (FileNotFoundError, OSError):
                 pass
         if not api_key:
-            # 兜底硬编码（仅用于测试环境，生产环境应通过环境变量配置）
-            logger.warning("[Orchestrator] QWEN_API_KEY 未配置环境变量，使用代码内密钥（不推荐）")
-            api_key = "sk-e84cc5dc7d9d409b82b4709e1b5d2509"
+            raise ValueError(
+                "QWEN_API_KEY not configured. Set it in /root/.env or export QWEN_API_KEY=your_key"
+            )
         base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
         model = "qwen-max"
 
