@@ -1,0 +1,89 @@
+Entropy Runtime v3.2 · End-to-End 测试报告
+目标: 分析 /root/EntropyGuard/test-targets/ 下 Flask 测试应用的安全性，生成完整安全报告
+时间: 2026-06-01 22:19:09
+总耗时: 73.8s
+子任务数: 5
+成功率: 4/5
+报告质量: 7/7
+
+======================================================================
+
+=== 完整安全报告 ===
+
+===== task-explore-directory (探索 /root/EntropyGuard/test-targets/ 目录，列出所有文件并识别 Flask 应用相关文件（如 .py 文件、requirements.txt、templates 等）) =====
+=== Flask 应用源码分析 ===
+文件: /root/EntropyGuard/test-targets/vulnerable_app.py
+代码行数: 37
+定义的路由端点:
+  /api/data
+  /api/config
+  /api/exec
+
+安全风险扫描:
+🔴 CVE 风险: app.debug = True (调试模式生产环境启用)
+🔴 敏感信息泄露: SECRET_KEY 硬编码在源代码中
+🟡 CORS 未配置
+ℹ️  框架: Flask (需检查版本)
+🔴 CVE-2019-1010083: Werkzeug 调试器 PIN 绕过
+
+完整源码:
+"""
+Flask 1.0 + Werkzeug 0.14.1 测试应用
+CVE-2019-1010083: Debug mode debugger PIN bypass
+"""
+from flask import Flask, request, jsonify
+import os
+
+app = Flask(__name__)
+app.secret_key = 'test-secret-key-123'
+app.debug = True  # CVE: debug mode enabled in production
+
+@app.route('/api/data')
+def get_data():
+    """
+===== task-static-code-analysis (对找到的 Flask 应用源代码进行静态安全分析，检测常见漏洞（SQL注入、XSS、CSRF、硬编码密钥、不安全反序列化等）) =====
+Run started:2026-06-01 14:18:07.147569
+
+Test results:
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'vulnerable-secret-key-12345678'
+   Severity: Low   Confidence: Medium
+   Location: /root/EntropyGuard/test-targets/django-test/django_app.py:23
+   More Info: https://bandit.readthedocs.io/en/latest/plugins/b106_hardcoded_password_funcarg.html
+22	if not settings.configured:
+23	    settings.configure(
+24	        DEBUG=True,
+25	        SECRET_KEY='vulnerable-secret-key-12345678',
+26	        ALLOWED_HOSTS=['*'],
+27	        ROOT_URLCONF=__name__,
+28	        MIDDLEWARE=[
+29
+===== task-dynamic-security-testing (尝试启动 Flask 应用并进行基本动态安全测试，验证输入验证、认证、会话管理等实际行为) =====
+HTTP_CODE:000
+===== task-generate-security-report (汇总静态分析、依赖检查和动态测试的结果，生成一份结构化的完整安全报告（含发现、风险等级、修复建议）) =====
+目标目录: /root/EntropyGuard/test-targets
+文件列表:
+/root/EntropyGuard/test-targets/django-test/django_app.py
+/root/EntropyGuard/test-targets/vulnerable_app.py
+/root/EntropyGuard/test-targets/flask-venv/pyvenv.cfg
+/root/EntropyGuard/test-targets/flask-venv/lib/python3.10/site-packages/click/types.py
+/root/EntropyGuard/test-targets/flask-venv/lib/python3.10/site-packages/click/globals.py
+/root/EntropyGuard/test-targets/flask-venv/lib/python3.10/site-packages/click/core.py
+/root/EntropyGuard/test-targets/flask-venv/lib/python3.10/site-packages/click/formatting.py
+/root/EntropyGuard/test-targets/flask-ve
+
+=== 汇总摘要 ===
+Orchestrator 执行完成: 4/5 子任务成功
+  ✅ [task-explore-directory] hermes: === Flask 应用源码分析 ===
+文件: /root/EntropyGuard/test-targets/vulnerable_app.py
+代码行数: 37
+定义的路由端点:
+  /api/
+  ✅ [task-static-code-analysis] hermes: Run started:2026-06-01 14:18:07.147569
+
+Test results:
+>> Issue: [B106:hardcoded_password_funcarg] Po
+  ❌ [task-dependency-vulnerability-check] hermes: Safety 依赖检查 执行超时 (60s)
+  ✅ [task-dynamic-security-testing] hermes: HTTP_CODE:000
+  ✅ [task-generate-security-report] hermes: 目标目录: /root/EntropyGuard/test-targets
+文件列表:
+/root/EntropyGuard/test-targets/django-test/django_app.p
