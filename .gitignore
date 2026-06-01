@@ -31,3 +31,4 @@ Thumbs.db
 
 # Testing artifacts
 test_*.py
+test-targets/

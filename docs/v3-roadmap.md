@@ -156,3 +156,30 @@ Phase 4: Week 8-9  ← v2.9 → v3.0
 1. **DeepSeek API 可用性** — AI 生成依赖外部 API，断网时退化到模板模式
 2. **性能开销** — 解码预处理增加延迟 (~5ms/次)，基线建模需存储 (~100KB/会话)
 3. **误报率** — 行为基线可能产生误报，需要调优期（~1周 shadow mode）
+
+---
+
+## 附录: 泛化测试报告
+
+### 测试摘要
+
+| 实验 | 目标 | 结果 | 关键发现 |
+|:----:|------|:----:|----------|
+| #1 | Flask 1.0 + Werkzeug 0.14.1 (CVE-2019-1010083) | ⚠️ 部分命中 | Werkzeug /console 检测模板命中；但 **FLask 专用，算巧合** |
+| #2 | Django 2.0.7 (Debug/CSRF/XSS) | ❌ 未命中 | 模板系统无 Django 专用模板；CSRF 种子缺失 |
+
+### RedteamEvolver v3 能力边界
+
+| 能力域 | 能力 | 评级 |
+|--------|------|:----:|
+| **已知攻击变异** | 10 种变异（5 shell + 5 web）保留攻击向量 | ⭐⭐⭐⭐ |
+| **种子加载** | 26 条 OWASP 种子自动加载到 pending | ⭐⭐⭐ |
+| **Fitness 评估** | HTTP 状态/信息泄露/响应时间三维评分 | ⭐⭐ (路径硬编码) |
+| **模板生成** | 固定 3 个 web 模板（路径遍历/SSRF/Werkzeug console） | ⭐⭐ (无目标适应) |
+| **AI 独立发现** | 依赖 DeepSeek API（当前不可用） | ⭐ |
+
+### v3.1 改进方向
+
+1. **动态模板生成** — `_template_candidates` 基于 `target_context.focus_areas` 动态选择模板（CSRF/XSS/Auth 等）
+2. **Fitness 路径可配置** — 根据每个 seed 的 `endpoint_type` 发送到正确路径
+3. **CSRF 种子库** — 补充 CWE-352 CSRF 绕过种子（无 token / stale token / same-site bypass 等）
