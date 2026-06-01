@@ -11,7 +11,9 @@ class AgentTask(BaseModel):
     """Orchestrator 拆解出的单个子任务"""
     id: str = Field(..., description="任务唯一标识，如 task-001")
     source: str = Field(default="orchestrator", description="任务来源标识")
+    description: str = Field(default="", description="子任务描述（简短说明）")
     intent: str = Field(..., description="任务意图描述（自然语言）")
+    dependencies: list[str] = Field(default_factory=list, description="依赖的前置任务 ID 列表")
     payload: dict[str, Any] = Field(default_factory=dict, description="任务负载参数")
     requires_approval: bool = Field(default=False, description="是否需要人工审批")
     parent_task_id: Optional[str] = Field(default=None, description="父任务 ID（用于嵌套分解）")
