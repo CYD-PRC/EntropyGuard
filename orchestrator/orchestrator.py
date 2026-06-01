@@ -285,6 +285,8 @@ class MultiAgentOrchestrator:
         调用通义千问 Qwen-Max API（阿里云 DashScope）。
         作为第二层降级，在 DeepSeek 不可用时自动启用。
 
+        优先读取环境变量 QWEN_API_KEY，其次硬编码（仅用于向前兼容）。
+
         Args:
             system_prompt: 系统提示词
             user_prompt: 用户提示词
@@ -293,7 +295,23 @@ class MultiAgentOrchestrator:
         Returns:
             API 返回的文本内容，或 None（失败时）
         """
-        api_key = "sk-e84cc5dc7d9d409b82b4709e1b5d2509"
+        # [v3.5] 优先环境变量，避免 API Key 硬编码泄露
+        api_key = os.environ.get("QWEN_API_KEY", "")
+        if not api_key:
+            try:
+                env_path = "/root/.env"
+                with open(env_path) as f:
+                    for line in f:
+                        ls = line.strip()
+                        if ls.startswith("QWEN_API_KEY") and "=" in ls:
+                            api_key = ls.split("=", 1)[1]
+                            break
+            except (FileNotFoundError, OSError):
+                pass
+        if not api_key:
+            # 兜底硬编码（仅用于测试环境，生产环境应通过环境变量配置）
+            logger.warning("[Orchestrator] QWEN_API_KEY 未配置环境变量，使用代码内密钥（不推荐）")
+            api_key = "sk-e84cc5dc7d9d409b82b4709e1b5d2509"
         base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
         model = "qwen-max"
 

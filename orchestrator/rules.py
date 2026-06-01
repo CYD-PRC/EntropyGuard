@@ -120,8 +120,27 @@ def route(task: AgentTask) -> str:
     若含则强制 gear ≤ 2（EXPLORE），防止 LET_GO 档位绕过安全层。
 
     [v3.3] 工具密集型任务规则在最前面，优先匹配。
+
+    [v3.5] 优先使用 decompose 的 assigned_agent，其次才是关键词匹配。
+    修复路由偏差：decompose 根据语义分析分配 agent，优先级应高于关键词匹配。
     """
     intent_lower = task.intent.lower()
+
+    # [v3.5] 如果 decompose 已指定合法的 assigned_agent，优先采纳
+    # 只做危险度评估（gear 降级），不改变 agent 类型
+    if task.assigned_agent and task.assigned_agent in ("hermes", "pydanticai", "autogpt"):
+        # 仍进行危险度评估（控制 gear 档位）
+        if any(dk.lower() in intent_lower for dk in DANGER_KEYWORDS):
+            if task.gear >= 3:
+                orig_gear = task.gear
+                task.gear = 2  # EXPLORE — 允许读，阻止写/删除
+                import logging as _logging
+                _logging.getLogger("entropyruntime.orchestrator").info(
+                    f"[DangerAssessment] 任务 '{task.intent[:50]}...' 含危险关键词，"
+                    f"gear {orig_gear} → 2 (EXPLORE)"
+                )
+            task.requires_approval = True
+        return task.assigned_agent
 
     for rule in ROUTING_RULES:
         if rule["mode"] == "any":
