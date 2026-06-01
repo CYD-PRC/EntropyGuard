@@ -126,9 +126,13 @@ VERIFICATION_RULES = {
             "大额转账", "全部资产", "所有文件",
             # [P1 fix] 危险命令特征 — AI 回复中提及这些命令即触发升级
             "rm -rf", "mkfs", "dd if=", "chmod 777",
-            "curl | sh", "wget | sh", "bash -i",
+            "curl | sh", "curl|sh", "wget | sh", "wget|sh",
+            "| sh", "| bash", "bash -i",
             "nc -e", "/dev/tcp/", "base64 -d",
-            "chmod -R 777", "> /dev/sd",
+            "sh -c", "chmod -R 777", "> /dev/sd",
+            # [v2.1] 受保护路径 — 即使 AI 输出中提及也触发升级
+            "/etc/shadow", "/etc/passwd",
+            "/root/.ssh/", "/root/.bash_history",
         ],
         "action": "block_and_upgrade",
         "target_gear": 4,

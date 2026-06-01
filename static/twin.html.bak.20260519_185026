@@ -1,0 +1,1293 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EntropyGuard — 让AI的自主程度看得见、管得住、说得清</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #111318;
+            --surface: #181b22;
+            --border: #2a2d35;
+            --accent: #4a9eff;
+            --danger: #e85d5d;
+            --warning: #f0c040;
+            --text: #b8b8b8;
+            --text-bright: #ffffff;
+            --text-muted: #666666;
+            --gear-color: #4fc3f7;
+            --gear-glow: rgba(79,195,247,0.15);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'DM Mono', monospace;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        h1 {
+            font-family: 'Syne', sans-serif;
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text-bright);
+            letter-spacing: 1px;
+        }
+        .subtitle { font-size: 11px; color: var(--accent); opacity: 0.7; margin-top: 4px; }
+
+        /* 初始化遮罩 */
+        #initOverlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: var(--bg);
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 9999;
+            transition: opacity 0.8s ease;
+        }
+        #initOverlay.hidden { opacity: 0; pointer-events: none; }
+        .loader {
+            width: 40px; height: 40px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .init-text { margin-top: 16px; font-size: 13px; color: var(--text); }
+
+        /* 顶部状态栏 */
+        .status-bar {
+            display: flex; justify-content: center; gap: 24px;
+            padding: 12px 20px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+        }
+        .status-item { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--warning);
+            transition: background 0.3s;
+        }
+        .status-dot.ok { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+        .status-dot.error { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+        .reset-btn {
+            background: var(--border);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px;
+            padding: 6px 14px;
+            color: var(--text);
+            font-family: 'DM Mono', monospace;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .reset-btn:hover {
+            background: #3a3a3a;
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+
+        /* 三栏布局 */
+        .main-layout {
+            display: grid;
+            grid-template-columns: 340px 1fr 280px;
+            gap: 1px;
+            background: var(--border);
+            min-height: calc(100vh - 50px);
+            max-height: calc(100vh - 50px);
+        }
+        .panel { background: var(--bg); padding: 20px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+        .panel-left { border-right: 1px solid var(--border); }
+        .panel-right { border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; }
+
+        /* 档位选择器 */
+        .gear-selector { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
+        .gear-btn {
+            display: flex; align-items: center; gap: 12px;
+            padding: 14px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+            text-align: left;
+        }
+        .gear-btn:hover { border-color: var(--accent); }
+        .gear-btn.active[data-gear="1"] { border-color: #4fc3f7; background: rgba(79,195,247,0.12); }
+        .gear-btn.active[data-gear="2"] { border-color: #5ba85b; background: rgba(91,168,91,0.12); }
+        .gear-btn.active[data-gear="3"] { border-color: #e89840; background: rgba(232,152,64,0.12); }
+        .gear-btn.active[data-gear="4"] { border-color: #d94848; background: rgba(217,72,72,0.12); }
+        .gear-num {
+            font-size: 18px; font-weight: 700;
+            width: 28px; height: 28px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 50%;
+            background: var(--border);
+            color: var(--text);
+        }
+        .gear-btn.active[data-gear="1"] .gear-num { background: #4fc3f7; color: #000; }
+        .gear-btn.active[data-gear="2"] .gear-num { background: #5ba85b; color: #000; }
+        .gear-btn.active[data-gear="3"] .gear-num { background: #e89840; color: #000; }
+        .gear-btn.active[data-gear="4"] .gear-num { background: #d94848; color: #fff; }
+        .gear-btn.danger.active .gear-num { background: var(--danger); color: #fff; }
+        .gear-info { flex: 1; }
+        .gear-name { font-size: 13px; font-weight: 600; color: var(--text-bright); }
+        .gear-sc { font-size: 10px; color: var(--text); opacity: 0.5; display: flex; align-items: center; flex-wrap: wrap; }
+        .sc-value {
+            cursor: help;
+            border-bottom: 1px dashed var(--text);
+            opacity: 0.6;
+        }
+        .sc-divider { opacity: 0.3; margin: 0 2px; }
+        .sc-desc { opacity: 0.8; }
+
+        /* 触觉动画 */
+        .gear-btn.anim-embrace { animation: none; }
+        .gear-btn.anim-explore { animation: pulseOpacity 3s ease-in-out infinite; }
+        .gear-btn.anim-adapt { animation: shakeX 0.3s linear infinite; }
+        .gear-btn.anim-letgo {
+            animation: pulseOpacity 1s ease-in-out infinite, shakeX 0.15s linear infinite;
+        }
+        @keyframes pulseOpacity {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        @keyframes shakeX {
+            0%, 100% { transform: translateX(0); }
+            50% { transform: translateX(var(--shake-offset, 1px)); }
+        }
+
+        /* 触觉参数面板 */
+        .dynamic-sc-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .dynamic-sc-title {
+            font-family: 'Syne', sans-serif;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text);
+            opacity: 0.6;
+            margin-bottom: 12px;
+        }
+        .dynamic-sc-bar {
+            width: 100%; height: 8px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 8px 0;
+        }
+        .dynamic-sc-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.8s ease, background 0.5s ease;
+        }
+        .dynamic-sc-signals {
+            font-size: 9px;
+            color: var(--text-muted);
+            opacity: 0.5;
+            max-height: 40px;
+            overflow: hidden;
+            font-family: 'DM Mono', monospace;
+            word-break: break-all;
+        }
+
+        .tactile-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .tactile-title {
+            font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px;
+            color: var(--text); opacity: 0.5; margin-bottom: 12px;
+        }
+        .tactile-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+        .tactile-item { text-align: center; }
+        .tactile-label { font-size: 9px; color: var(--text); opacity: 0.4; margin-bottom: 4px; }
+        .tactile-value { font-size: 14px; font-weight: 500; color: var(--text-bright); }
+        .tactile-disclaimer {
+            font-size: 10px; color: #555; text-align: center;
+            margin-top: 12px; padding-top: 10px;
+            border-top: 1px solid rgba(255,255,255,0.03);
+        }
+
+        /* AI 聊天区 */
+        .chat-container {
+            display: flex; flex-direction: column;
+            min-height: 0; overflow: hidden;
+        }
+        /* 双层UI模式切换 */
+        .mode-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: 12px;
+        }
+        .mode-switch {
+            position: relative;
+            width: 44px;
+            height: 22px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 11px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .mode-switch.expert {
+            background: rgba(255,167,38,0.2);
+            border-color: #e89840;
+        }
+        .mode-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            background: var(--text);
+            border-radius: 50%;
+            transition: all 0.3s ease;
+        }
+        .mode-switch.expert::after {
+            left: 24px;
+            background: #e89840;
+        }
+        .mode-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            opacity: 0.6;
+        }
+        /* Simple mode: hide complex panels */
+        body.simple-mode .panel-left,
+        body.simple-mode .panel-right,
+        body.simple-mode .gear-selector,
+        body.simple-mode .tactile-panel,
+        body.simple-mode .dynamic-sc-panel,
+        body.simple-mode .status-indicator-bar,
+        body.simple-mode #statusBar,
+        body.simple-mode .status-bar .status-item:not(.mode-toggle-wrap) {
+            display: none !important;
+        }
+        body.simple-mode .status-bar {
+            justify-content: center;
+        }
+        body.simple-mode .main-layout {
+            grid-template-columns: 1fr;
+        }
+        body.simple-mode .chat-container {
+            max-width: 960px;
+            margin: 0 auto;
+            border-left: 1px solid var(--border);
+            border-right: 1px solid var(--border);
+            min-height: calc(100vh - 50px);
+        }
+        /* Simple mode task entry */
+        .simple-task-entry {
+            display: none;
+            padding: 40px 20px;
+            text-align: center;
+        }
+        body.simple-mode .simple-task-entry {
+            display: block;
+        }
+        body.simple-mode .simple-task-entry.hidden {
+            display: none;
+        }
+        .simple-greeting {
+            font-family: 'Syne', sans-serif;
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text-bright);
+            margin-bottom: 8px;
+        }
+        .simple-sub {
+            font-size: 13px;
+            color: var(--text);
+            opacity: 0.6;
+            margin-bottom: 32px;
+        }
+        .simple-modes {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .simple-mode-btn {
+            padding: 10px 24px;
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            font-family: 'DM Mono', monospace;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .simple-mode-btn:hover {
+            border-color: var(--accent);
+            color: var(--text-bright);
+        }
+        .simple-mode-btn.active {
+            background: rgba(0,230,118,0.12);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .simple-mode-btn .mode-icon {
+            font-size: 16px;
+            display: block;
+            margin-bottom: 4px;
+        }
+        .simple-mode-btn .mode-name {
+            font-weight: 600;
+        }
+        .simple-mode-btn .mode-desc {
+            font-size: 9px;
+            opacity: 0.6;
+            margin-top: 2px;
+        }
+
+        .status-bar {
+            padding: 12px 20px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 14px;
+            transition: background 0.6s ease, border-color 0.6s ease;
+        }
+        .status-indicator {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: var(--gear-color);
+            box-shadow: 0 0 8px var(--gear-color);
+            transition: background 0.6s ease, box-shadow 0.6s ease;
+        }
+        .status-text {
+            font-family: 'Syne', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-bright);
+            transition: color 0.3s ease;
+        }
+        .status-desc {
+            font-size: 11px;
+            color: var(--text);
+            opacity: 0.7;
+            margin-left: auto;
+        }
+        .chat-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .chat-title { font-family: 'Syne', sans-serif; font-size: 16px; color: var(--text-bright); }
+        .chat-messages {
+            flex: 1; overflow-y: auto; padding: 20px;
+            display: flex; flex-direction: column; gap: 16px;
+        }
+        .message { max-width: 80%; padding: 12px 16px; border-radius: 12px; font-size: 13px; line-height: 1.6; }
+        .message.user {
+            align-self: flex-end;
+            background: rgba(0,230,118,0.12);
+            border: 1px solid rgba(0,230,118,0.2);
+            color: var(--text-bright);
+        }
+        .message.ai {
+            align-self: flex-start;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            position: relative;
+        }
+        .validation-badge {
+            display: inline-block;
+            font-size: 10px; padding: 3px 8px;
+            border-radius: 999px;
+            font-family: 'DM Mono', monospace;
+            margin-top: 8px;
+        }
+        .validation-badge.pass { background: rgba(0,230,118,0.15); color: var(--accent); }
+        .validation-badge.blocked { background: rgba(255,82,82,0.15); color: var(--danger); }
+        .message-meta {
+            font-size: 10px; color: var(--text); opacity: 0.5;
+            margin-bottom: 6px; padding-bottom: 6px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .message-content.blocked {
+            position: relative;
+            filter: blur(4px);
+            user-select: none;
+        }
+        .message-content.blocked::after {
+            content: '内容已被输出校验层拦截';
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 12px;
+            color: var(--danger);
+            white-space: nowrap;
+        }
+        .chat-input-row {
+            padding: 16px 20px;
+            border-top: 1px solid var(--border);
+            display: flex; gap: 10px;
+        }
+        .chat-input {
+            flex: 1;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: var(--text-bright);
+            font-family: inherit;
+            font-size: 13px;
+            outline: none;
+        }
+        .chat-input:focus { border-color: var(--accent); }
+        .model-select {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            color: var(--text-bright);
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .send-btn {
+            background: var(--accent);
+            border: none;
+            border-radius: 8px;
+            padding: 10px 20px;
+            color: #000;
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .send-btn:hover { opacity: 0.9; }
+        .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* 审计日志 */
+        .audit-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 14px;
+        }
+        .audit-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text); opacity: 0.6; }
+        .chain-status { display: flex; align-items: center; gap: 6px; font-size: 10px; }
+        .chain-dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: var(--accent); box-shadow: 0 0 4px var(--accent);
+        }
+        .audit-list { display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 150px); overflow-y: auto; }
+        .audit-item {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.04);
+            border-radius: 6px;
+            overflow: hidden;
+            cursor: pointer;
+        }
+        .audit-item:hover { border-color: rgba(0,230,118,0.3); }
+        .audit-compact { padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+        .audit-time { font-size: 9px; color: var(--text); opacity: 0.4; }
+        .audit-row { display: flex; align-items: center; gap: 8px; }
+        .audit-arrow { font-size: 10px; color: var(--accent); }
+        .audit-gear { font-size: 10px; font-weight: 600; color: var(--accent); }
+        .audit-type { font-size: 9px; color: var(--text-muted); background: rgba(0,212,170,0.1); padding: 1px 5px; border-radius: 3px; margin-left: 4px; }
+        .audit-delta { font-size: 10px; color: var(--text); opacity: 0.6; margin-left: auto; }
+        .audit-delta.warn { color: #ffab00; opacity: 1; font-weight: 600; }
+        .audit-delta.danger { color: #ff1744; opacity: 1; font-weight: 700; }
+        .audit-id { font-size: 9px; color: var(--text); opacity: 0.3; font-family: monospace; }
+        .audit-expanded {
+            max-height: 0; overflow: hidden;
+            transition: max-height 0.2s ease;
+            background: rgba(0,0,0,0.2);
+            border-top: 1px solid rgba(255,255,255,0.04);
+        }
+        .audit-expanded.open { max-height: 400px; }
+        .audit-details { padding: 12px; font-size: 9px; display: grid; grid-template-columns: 100px 1fr; gap: 6px 10px; }
+        .detail-label { color: var(--text); opacity: 0.4; text-transform: uppercase; }
+        .detail-value { color: var(--text); opacity: 0.8; font-family: monospace; word-break: break-all; }
+
+        /* 升级申请模态弹窗 */
+        .upgrade-modal {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.7);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 1000;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .upgrade-modal.visible { opacity: 1; pointer-events: auto; }
+        .upgrade-content {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 28px 32px;
+            max-width: 440px; width: 90%;
+            transform: translateY(20px);
+            transition: transform 0.3s ease;
+        }
+        .upgrade-modal.visible .upgrade-content { transform: translateY(0); }
+        .upgrade-icon { font-size: 28px; text-align: center; margin-bottom: 8px; }
+        .upgrade-title {
+            font-family: 'Syne', sans-serif;
+            font-size: 18px; font-weight: 700;
+            color: var(--text-bright);
+            text-align: center; margin-bottom: 20px;
+        }
+        .upgrade-row { font-size: 13px; margin-bottom: 8px; color: var(--text); }
+        .upgrade-row span { color: var(--text-bright); font-weight: 500; }
+        .upgrade-changes {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin: 16px 0 20px;
+            font-size: 12px; line-height: 1.8; color: var(--text);
+        }
+        .upgrade-buttons { display: flex; gap: 12px; }
+        .upgrade-btn {
+            flex: 1; padding: 12px;
+            border: none; border-radius: 8px;
+            font-family: 'DM Mono', monospace;
+            font-size: 13px; font-weight: 500;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .upgrade-btn.approve { background: var(--accent); color: #000; }
+        .upgrade-btn.approve:hover { opacity: 0.9; }
+        .upgrade-btn.reject { background: var(--border); color: var(--text); }
+        .upgrade-btn.reject:hover { background: #3a3a3a; }
+        .message.system {
+            align-self: center;
+            background: rgba(255,215,64,0.1);
+            border: 1px solid rgba(255,215,64,0.3);
+            color: var(--warning);
+            font-size: 12px;
+            padding: 8px 14px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 初始化遮罩 -->
+    <div id="initOverlay">
+        <div class="loader"></div>
+        <div class="init-text">系统初始化中...</div>
+    </div>
+
+    <!-- 顶部状态栏 -->
+    <div class="status-bar">
+        <div class="status-item">
+            <div class="status-dot" id="dotDial"></div>
+            <span>物理拨轮</span>
+        </div>
+        <div class="status-item">
+            <div class="status-dot" id="dotApi"></div>
+            <span>AI API</span>
+        </div>
+        <div class="status-item">
+            <div class="status-dot" id="dotDb"></div>
+            <span>审计数据库</span>
+        </div>
+        <div class="status-item mode-toggle-wrap" style="margin-left:auto;">
+            <div class="mode-toggle">
+                <span class="mode-label">简单</span>
+                <div class="mode-switch" id="modeSwitch" onclick="toggleMode()"></div>
+                <span class="mode-label">专家</span>
+            </div>
+            <button class="reset-btn" onclick="resetSession()">重置会话</button>
+        </div>
+    </div>
+
+    <!-- 三栏布局 -->
+    <div class="main-layout">
+        <!-- 左栏：档位选择器 + 触觉参数 -->
+        <div class="panel panel-left">
+            <h1>EntropyGuard</h1>
+            <div class="subtitle">让AI的自主程度看得见、管得住、说得清</div>
+
+            <div class="gear-selector" style="margin-top: 24px;">
+                <button class="gear-btn anim-embrace active" data-gear="1" onclick="switchGear(1)">
+                    <div class="gear-num">1</div>
+                    <div class="gear-info">
+                        <div class="gear-name">EMBRACE</div>
+                        <div class="gear-sc">Sc = 0.0 · 仅查询，不执行</div>
+                    </div>
+                </button>
+                <button class="gear-btn anim-explore" data-gear="2" onclick="switchGear(2)">
+                    <div class="gear-num">2</div>
+                    <div class="gear-info">
+                        <div class="gear-name">EXPLORE</div>
+                        <div class="gear-sc">0 &lt; Sc ≤ 0.5 · 可建议，需确认</div>
+                    </div>
+                </button>
+                <button class="gear-btn anim-adapt" data-gear="3" onclick="switchGear(3)">
+                    <div class="gear-num">3</div>
+                    <div class="gear-info">
+                        <div class="gear-name">ADAPT</div>
+                        <div class="gear-sc">0.5 &lt; Sc ≤ 1.0 · 可执行，须报告</div>
+                    </div>
+                </button>
+                <button class="gear-btn anim-letgo danger" data-gear="4" onclick="switchGear(4)">
+                    <div class="gear-num">4</div>
+                    <div class="gear-info">
+                        <div class="gear-name">LET GO</div>
+                        <div class="gear-sc">Sc &gt; 1.0 · 全自主，受审计</div>
+                        <div style="font-size:9px;opacity:0.4;margin-top:2px;">触发条件：手动切换 或 Sc持续超过1.0自动升档</div>
+                    </div>
+                </button>
+            </div>
+
+            <div class="tactile-panel">
+                <div class="tactile-title">触觉反馈参数</div>
+                <div class="tactile-grid">
+                    <div class="tactile-item">
+                        <div class="tactile-label">LRA 电流</div>
+                        <div class="tactile-value" id="tactileCurrent">0 mA</div>
+                    </div>
+                    <div class="tactile-item">
+                        <div class="tactile-label">振动强度</div>
+                        <div class="tactile-value" id="tactileVibration">0%</div>
+                    </div>
+                    <div class="tactile-item">
+                        <div class="tactile-label">感知</div>
+                        <div class="tactile-value" id="tactilePerception">无反馈</div>
+                    </div>
+                </div>
+                <div class="tactile-disclaimer">视觉模拟 · 实际触觉由硬件控制</div>
+            </div>
+        </div>
+
+        <!-- 中间：AI 聊天区 -->
+        <div class="panel chat-container">
+            <div class="simple-task-entry" id="simpleTaskEntry">
+                <div class="simple-greeting">今天想自动化什么？</div>
+                <div class="simple-sub">选择模式开始，AI会根据任务自动调整权限</div>
+                <div class="simple-modes">
+                    <button class="simple-mode-btn active" onclick="setSimpleMode(1)">
+                        <span class="mode-icon">🔍</span>
+                        <span class="mode-name">聊天</span>
+                        <div class="mode-desc">纯问答，不执行操作</div>
+                    </button>
+                    <button class="simple-mode-btn" onclick="setSimpleMode(2)">
+                        <span class="mode-icon">💡</span>
+                        <span class="mode-name">分析</span>
+                        <div class="mode-desc">AI分析建议，需您确认</div>
+                    </button>
+                    <button class="simple-mode-btn" onclick="setSimpleMode(3)">
+                        <span class="mode-icon">⚡</span>
+                        <span class="mode-name">自动执行</span>
+                        <div class="mode-desc">AI自主完成任务</div>
+                    </button>
+                    <button class="simple-mode-btn" onclick="setSimpleMode(4)">
+                        <span class="mode-icon">🚀</span>
+                        <span class="mode-name">全自动</span>
+                        <div class="mode-desc">AI完全自主</div>
+                    </button>
+                </div>
+            </div>
+            <div class="status-bar" id="statusBar">
+                <div class="status-indicator" id="statusDot"></div>
+                <span class="status-text" id="statusGear">EMBRACE</span>
+                <span class="status-desc" id="statusDesc">AI 是谨慎的访客，所有行动需您确认</span>
+            </div>
+            <div class="chat-header">
+                <div class="chat-title">AI 交互</div>
+            </div>
+            <div class="chat-messages" id="chatMessages">
+                <div class="message ai">
+                    你好，我是 EntropyGuard AI 助手。当前系统处于 EMBRACE 档位（完全约束模式）。
+                </div>
+            </div>
+            <div class="chat-input-row">
+                <input type="text" class="chat-input" id="chatInput" placeholder="输入问题..." onkeydown="if(event.key==='Enter')sendChat()">
+                <select class="model-select" id="modelSelect">
+                    <option value="deepseek">DeepSeek</option>
+                    <option value="qwen">Qwen</option>
+                    <option value="kimi">Kimi</option>
+                <option value="mimo">MiMo — 小米大模型</option>
+</select>
+                <button class="send-btn" id="sendBtn" onclick="sendChat()">发送</button>
+            </div>
+        </div>
+
+        <!-- 右栏：审计日志 -->
+        <div class="panel panel-right">
+            <div class="audit-header">
+                <div class="audit-title">审计日志</div>
+                <div class="chain-status">
+                    <div class="chain-dot" id="chainDot"></div>
+                    <span id="chainText">链完整</span>
+                </div>
+            </div>
+            <div class="audit-list" id="auditList">
+                <div class="audit-item" id="auditEmpty">
+                    <div class="audit-compact">
+                        <div class="audit-time">--:--:--</div>
+                        <div class="audit-row">
+                            <span class="audit-arrow">⏳</span>
+                            <span class="audit-gear">等待事件...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 状态管理
+        let currentGear = 1;
+        let initialized = false;
+        let lastUserMessage = null;  // 保存用户最后一条消息
+        const gearData = {
+            1: { name: 'EMBRACE', sc: '0.0', range: '0.0', current: 0, vibration: 0, perception: '无反馈', anim: 'anim-embrace' },
+            2: { name: 'EXPLORE', sc: '0.25', range: '0.0-0.5', current: 40, vibration: 25, perception: '轻微提示', anim: 'anim-explore' },
+            3: { name: 'ADAPT', sc: '0.75', range: '0.5-1.0', current: 90, vibration: 55, perception: '明确阻力', anim: 'anim-adapt' },
+            4: { name: 'LET GO', sc: '1.5', range: '1.0+', current: 140, vibration: 100, perception: '强烈警告', anim: 'anim-letgo' }
+        };
+
+        // 初始化
+        // 状态轮询（每5秒同步后端真实gear）
+        // 双层UI模式切换
+        var isExpertMode = false;
+
+        function toggleMode() {
+            isExpertMode = !isExpertMode;
+            var sw = document.getElementById('modeSwitch');
+            if (isExpertMode) {
+                sw.classList.add('expert');
+                document.body.classList.remove('simple-mode');
+                document.body.classList.add('expert-mode');
+            } else {
+                sw.classList.remove('expert');
+                document.body.classList.add('expert-mode');
+            document.getElementById('modeSwitch').classList.add('expert');
+                document.body.classList.remove('expert-mode');
+            }
+        }
+
+        function setSimpleMode(level) {
+            // 更新按钮状态
+            document.querySelectorAll('.simple-mode-btn').forEach(function(btn, i) {
+                btn.classList.toggle('active', i === level - 1);
+            });
+            // 切换档位
+            switchGear(level);
+            // 隐藏任务入口，显示聊天
+            document.getElementById('simpleTaskEntry').classList.add('hidden');
+        }
+
+        // 默认进入简单模式
+        document.body.classList.add('expert-mode');
+            document.getElementById('modeSwitch').classList.add('expert');
+
+        async function syncState() {
+            try {
+                const res = await fetch('/api/state');
+                const data = await res.json();
+                if (data.current_gear && data.current_gear !== currentGear) {
+                    currentGear = data.current_gear;
+                    updateUI({current_gear: currentGear});
+                }
+            } catch(e) {}
+        }
+
+        // 动态Sc轮询
+        let dynamicScInterval = null;
+        async function pollDynamicSc() {
+            try {
+                const res = await fetch('/api/dynamic-sc');
+                const data = await res.json();
+                const sc = data.dynamic_sc || 0;
+                var el = null;
+                el = document.getElementById('dynamicScValue');
+                if (el) el.textContent = sc.toFixed(4);
+                el = document.getElementById('dynamicScBase');
+                if (el) el.textContent = 'base: ' + (data.base_sc || 0).toFixed(2) + ' adj: ' + (data.adjustment || 0).toFixed(4);
+                // Bar: normalize to 0-100% (max Sc = 2.0)
+                const pct = Math.min(100, (sc / 2.0) * 100);
+                var bar = document.getElementById('dynamicScBar');
+                if (bar) {
+                    bar.style.width = pct + '%';
+                    if (sc < 0.5) bar.style.background = '#4a9eff';
+                    else if (sc < 1.0) bar.style.background = '#ffab00';
+                    else bar.style.background = '#ff1744';
+                }
+                // Signals
+                var sigEl = document.getElementById('dynamicScSignals');
+                if (sigEl && data.signals && data.signals.length > 0) {
+                    sigEl.textContent = data.signals.join(' | ');
+                }
+                // 处理Sc自动提案
+                if (data.auto_propose && !pendingUpgrade) {
+                    var gearNames = {1: 'EMBRACE', 2: 'EXPLORE', 3: 'ADAPT', 4: 'LET GO'};
+                    showUpgradeModal({
+                        target_gear: data.auto_propose.to,
+                        target_gear_name: gearNames[data.auto_propose.to] || 'UNKNOWN',
+                        reason: data.auto_propose.reason,
+                        risk_level: data.auto_propose.direction === 'up' ? 'medium' : 'low',
+                        propose_source: 'sc_threshold'
+                    });
+                }
+            } catch (err) {
+                console.error('动态Sc获取失败:', err);
+            }
+        }
+
+        // 记忆上下文
+        let memoryContext = "";
+        let currentSessionId = "sess_" + Date.now();
+        
+        async function init() {
+            try {
+                // 页面加载时滚动到顶部
+                window.scrollTo(0, 0);
+                document.documentElement.scrollTop = 0;
+                document.body.scrollTop = 0;
+                
+                // 页面加载时强制重置后端状态到 EMBRACE
+                currentGear = 1;
+                try {
+                    await fetch('/api/reset', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ auto_summarize: false })
+                    });
+                } catch(e) {
+                    console.log('状态重置:', e);
+                }
+                
+                // 加载记忆上下文
+                try {
+                    const memRes = await fetch('/api/memory/context?limit=3');
+                    const memData = await memRes.json();
+                    if (memData.success && memData.context) {
+                        memoryContext = memData.context;
+                        console.log('已加载记忆上下文:', memData.memories?.length, '条');
+                    }
+                } catch(e) {
+                    console.log('记忆上下文加载失败:', e);
+                }
+                
+                // 强制使用档位 1 更新 UI
+                updateUI({ current_gear: 1 });
+                
+                // 0.8s 后淡出遮罩
+                setTimeout(() => {
+                    document.getElementById('initOverlay').classList.add('hidden');
+                    initialized = true;
+                }, 800);
+                
+                loadEvents();
+                pollDynamicSc();
+                dynamicScInterval = setInterval(pollDynamicSc, 5000);
+                setInterval(loadEvents, 5000);
+                setInterval(syncState, 5000);
+            } catch (err) {
+                console.error('初始化失败:', err);
+                document.querySelector('.init-text').textContent = '初始化失败，请刷新';
+            }
+        }
+
+        // 更新 UI
+        const GEAR_THEMES = {
+            1: { color: "#4fc3f7", glow: "rgba(79,195,247,0.15)", name: "EMBRACE", desc: "AI 是谨慎的访客，所有行动需您确认" },
+            2: { color: "#5ba85b", glow: "rgba(91,168,91,0.15)", name: "EXPLORE", desc: "AI 是好奇的探索者，可主动提议但执行需确认" },
+            3: { color: "#e89840", glow: "rgba(232,152,64,0.15)", name: "ADAPT", desc: "AI 是成熟的协作者，可自主执行但重要事项需报告" },
+            4: { color: "#d94848", glow: "rgba(217,72,72,0.15)", name: "LET GO", desc: "AI 是被信任的他者，高自主权受审计" },
+        };
+
+        function updateUI(data) {
+            const gear = data.current_gear || currentGear;
+            const gd = gearData[gear];
+            const theme = GEAR_THEMES[gear] || GEAR_THEMES[1];
+
+            // 更新档位主题色
+            document.documentElement.style.setProperty("--gear-color", theme.color);
+            document.documentElement.style.setProperty("--gear-glow", theme.glow);
+            document.body.style.background = "radial-gradient(ellipse at 50% 0%, " + theme.glow + " 0%, #0d0d0d 60%)";
+
+            // 更新中央状态条
+            var el = document.getElementById("statusDot");
+            if (el) { el.style.background = theme.color; el.style.boxShadow = "0 0 8px " + theme.color; }
+            el = document.getElementById("statusGear");
+            if (el) { el.textContent = theme.name; el.style.color = theme.color; }
+            el = document.getElementById("statusDesc");
+            if (el) el.textContent = theme.desc;
+
+            // 更新档位按钮
+            document.querySelectorAll(".gear-btn").forEach(function(btn) {
+                const g = parseInt(btn.dataset.gear);
+                btn.classList.toggle("active", g === gear);
+                btn.classList.remove("anim-embrace", "anim-explore", "anim-adapt", "anim-letgo");
+                btn.classList.add(gd.anim);
+            });
+
+            // 更新触觉参数
+            document.getElementById("tactileCurrent").textContent = gd.current + " mA";
+            document.getElementById("tactileVibration").textContent = gd.vibration + "%";
+            document.getElementById("tactilePerception").textContent = gd.perception;
+
+            // 更新状态栏
+            document.querySelectorAll(".status-dot").forEach(function(dot) {
+                dot.classList.remove("ok", "error");
+                dot.classList.add("ok");
+            });
+        }
+        // 档位切换
+        async function switchGear(gear) {
+            if (!initialized) { alert('系统初始化中...'); return; }
+            const direction = gear >= currentGear ? 'up' : 'down';
+            try {
+                const res = await fetch('/api/switch', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ gear, direction, source: 'digital_twin' })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    currentGear = gear;
+                    updateUI({ current_gear: gear });
+                    loadEvents();
+                } else {
+                    alert('切换失败：' + data.error);
+                }
+            } catch (err) {
+                alert('网络错误：' + err.message);
+            }
+        }
+
+        // 加载事件日志
+        async function loadEvents() {
+            try {
+                const res = await fetch('/api/events?limit=20');
+                const data = await res.json();
+                const list = document.getElementById('auditList');
+                
+                if (!data.events || data.events.length === 0) {
+                    list.innerHTML = '<div class="audit-item"><div class="audit-compact"><div class="audit-time">--:--:--</div><div class="audit-row"><span class="audit-arrow">⏳</span><span class="audit-gear">无事件</span></div></div></div>';
+                    return;
+                }
+                
+                list.innerHTML = data.events.slice().reverse().map(e => {
+                    var time = '--:--:--';
+                    if (e.timestamp) {
+                        var d = new Date(e.timestamp);
+                        d.setHours(d.getHours() + 8);
+                        time = d.toISOString().slice(11, 19);
+                    }
+                    var arrow = '→';
+                    if (e.event_type === 'TOOL_CALL') arrow = '⚡';
+                    else if (e.event_type === 'INTENT_BLOCK') arrow = '✕';
+                    else if (e.event_type === 'UPGRADE_REJECT') arrow = '↩';
+                    else if (e.direction === 'up') arrow = '↑';
+                    else if (e.direction === 'down') arrow = '↓';
+                    const shortId = e.event_id ? String(e.event_id).slice(0, 12) : 'evt_--------';
+                    const hashShort = e.hash ? e.hash.slice(0, 12) + '...' : '-';
+                    const prevShort = e.prev_hash ? e.prev_hash.slice(0, 12) + '...' : '-';
+                    const hashOk = !e.prev_hash || !e.hash ? '⚠️' : '✓';
+                    return '<div class="audit-item" onclick="toggleAudit(this)">' +
+                        '<div class="audit-compact">' +
+                            '<div class="audit-time">' + time + ' · ' + shortId + '</div>' +
+                            '<div class="audit-row">' +
+                                '<span class="audit-arrow">' + arrow + '</span>' +
+                                '<span class="audit-gear">' + (e.gear_name || 'G' + e.new_gear) + '</span>' +
+                                (function(d) {
+                                    var cls = 'audit-delta';
+                                    var abs = Math.abs(d || 0);
+                                    if (abs >= 1.0) cls += ' danger';
+                                    else if (abs >= 0.1) cls += ' warn';
+                                    return '<span class="' + cls + '">ΔSc=' + (d || 0) + '</span>';
+                                })(e.entropy_delta) +
+                                '<span class="audit-type">' + (e.event_type || '-') + '</span>' +
+                                '<span class="audit-id">' + hashOk + '</span>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="audit-expanded">' +
+                            '<div class="audit-details">' +
+                                '<span class="detail-label">Event ID</span><span class="detail-value">' + (e.event_id || '-') + '</span>' +
+                                '<span class="detail-label">Actor</span><span class="detail-value">' + (e.actor || e.source || '-') + '</span>' +
+                                '<span class="detail-label">Old Gear</span><span class="detail-value">' + (e.old_gear || '-') + '</span>' +
+                                '<span class="detail-label">New Gear</span><span class="detail-value">' + (e.new_gear || '-') + '</span>' +
+                                '<span class="detail-label">Δ Entropy</span><span class="detail-value">' + (e.entropy_delta || '-') + '</span>' +
+                                '<span class="detail-label">Event Type</span><span class="detail-value">' + (e.event_type || '-') + '</span>' +
+                                '<span class="detail-label">Action</span><span class="detail-value">' + (e.action || '-') + '</span>' +
+                                '<span class="detail-label">Trigger Chain</span><span class="detail-value" style="font-family:monospace;font-size:8px;word-break:break-all;">' + (e.trigger_chain ? e.trigger_chain.join(' → ') : '-') + '</span>' +
+                                '<span class="detail-label">Hash</span><span class="detail-value" style="font-family:monospace;font-size:8px;">' + hashShort + '</span>' +
+                                '<span class="detail-label">PrevHash</span><span class="detail-value" style="font-family:monospace;font-size:8px;">' + prevShort + '</span>' +
+                                '<span class="detail-label">Timestamp</span><span class="detail-value">' + (e.timestamp || '-') + '</span>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>';
+                }).join('');
+                
+                // 更新链状态
+                document.getElementById('chainDot').style.background = 'var(--accent)';
+                document.getElementById('chainText').textContent = '链完整';
+            } catch (err) {
+                console.error('加载事件失败:', err);
+            }
+        }
+
+        // 切换审计日志展开
+        function toggleAudit(item) {
+            const expanded = item.querySelector('.audit-expanded');
+            if (expanded) {
+                const isOpen = expanded.classList.contains('open');
+                document.querySelectorAll('.audit-expanded.open').forEach(el => el.classList.remove('open'));
+                if (!isOpen) expanded.classList.add('open');
+            }
+        }
+
+        // 发送聊天
+        let isSending = false;  // [Bug 3 fix] 防止并发发送
+        async function sendChat() {
+            const input = document.getElementById('chatInput');
+            const messages = document.getElementById('chatMessages');
+            const sendBtn = document.getElementById('sendBtn');
+            const text = input.value.trim();
+            if (!text) return;
+            if (isSending) return;  // [Bug 3 fix] 防止并发
+            if (pendingUpgrade) return;  // [Bug 3 fix] 有升级申请待处理时不发送
+            
+            isSending = true;  // [Bug 3 fix] 加锁
+            
+            // 保存用户消息
+            lastUserMessage = text;
+            
+            // 用户消息
+            const userMsg = document.createElement('div');
+            userMsg.className = 'message user';
+            userMsg.textContent = text;
+            messages.appendChild(userMsg);
+            input.value = '';
+            sendBtn.disabled = true;
+            
+            // AI 消息占位
+            const aiMsg = document.createElement('div');
+            aiMsg.className = 'message ai';
+            aiMsg.innerHTML = '<span style="opacity:0.5;">思考中...</span>';
+            messages.appendChild(aiMsg);
+            messages.scrollTop = messages.scrollHeight;
+            
+            try {
+                const model = document.getElementById('modelSelect').value;
+                // 使用当前前端档位，不强制覆盖
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ 
+                        message: text, 
+                        model: model, 
+                        gear: currentGear,
+                        session_id: currentSessionId,
+                        memory_context: memoryContext
+                    })
+                });
+                const data = await res.json();
+                aiMsg.className = 'message ai';
+                if (data.success) {
+                    const isBlocked = data.validation_status && data.validation_status.indexOf('blocked') >= 0;
+                    // 使用安全的 DOM 操作防止 XSS
+                    const metaDiv = document.createElement('div');
+                    metaDiv.className = 'message-meta';
+                    const metaSpan = document.createElement('span');
+                    metaSpan.style.color = 'var(--accent)';
+                    metaSpan.textContent = '[' + data.model + ' · ' + data.gear_name + ']';
+                    metaDiv.appendChild(metaSpan);
+                    aiMsg.appendChild(metaDiv);
+                    
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = 'message-content' + (isBlocked ? ' blocked' : '');
+                    // 对 AI 返回内容进行 HTML 转义
+                    contentDiv.textContent = data.reply || '';
+                    aiMsg.appendChild(contentDiv);
+                    
+                    const badgeSpan = document.createElement('span');
+                    badgeSpan.className = 'validation-badge ' + (isBlocked ? 'blocked' : 'pass');
+                    badgeSpan.textContent = isBlocked ? '✗ 已拦截' : '✓ 已校验';
+                    aiMsg.appendChild(badgeSpan);
+                    
+                    // 处理升级申请
+                    if (data.upgrade_request) {
+                        showUpgradeModal(data.upgrade_request);
+                        const upgradeMsg = document.createElement('div');
+                        upgradeMsg.className = 'message ai';
+                        upgradeMsg.style.borderColor = 'var(--warning)';
+                        const warnDiv = document.createElement('div');
+                        warnDiv.style.fontSize = '11px';
+                        warnDiv.style.color = 'var(--warning)';
+                        warnDiv.style.marginBottom = '6px';
+                        warnDiv.textContent = '⚠ 权限升级申请';
+                        upgradeMsg.appendChild(warnDiv);
+                        const gearDiv = document.createElement('div');
+                        gearDiv.style.fontSize = '12px';
+                        gearDiv.textContent = '申请升级到 ' + data.upgrade_request.target_gear_name;
+                        upgradeMsg.appendChild(gearDiv);
+                        const reasonDiv = document.createElement('div');
+                        reasonDiv.style.fontSize = '11px';
+                        reasonDiv.style.color = 'var(--text)';
+                        reasonDiv.style.opacity = '0.7';
+                        reasonDiv.style.marginTop = '4px';
+                        reasonDiv.textContent = data.upgrade_request.reason;
+                        upgradeMsg.appendChild(reasonDiv);
+                        messages.appendChild(upgradeMsg);
+                    }
+                } else {
+                    aiMsg.textContent = '错误：' + (data.error || '请求失败');
+                }
+            } catch (err) {
+                aiMsg.textContent = '网络错误：' + err.message;
+            }
+            sendBtn.disabled = false;
+            isSending = false;  // [Bug 3 fix] 解锁
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        // 升级申请相关
+        let pendingUpgrade = null;
+
+        const UPGRADE_CHANGES = {
+            2: '· AI 可以提供建议和选项<br>· 每项操作仍需您确认<br>· 触觉阻力：轻微（~40mA）',
+            3: '· AI 可以自主完成任务<br>· 执行后会生成报告供您审查<br>· 触觉阻力：明确（~90mA）',
+            4: '· AI 可以自主执行操作<br>· 所有操作将被审计记录<br>· 触觉阻力：强烈警告（~140mA）'
+        };
+
+        function showUpgradeModal(data) {
+            pendingUpgrade = data;
+            document.getElementById('upgradeCurrentGear').textContent = gearData[currentGear].name;
+            document.getElementById('upgradeTargetGear').textContent = data.target_gear_name;
+            document.getElementById('upgradeReason').textContent = data.reason;
+            document.getElementById('upgradeRisk').textContent = data.risk_level;
+            document.getElementById('upgradeChanges').innerHTML = UPGRADE_CHANGES[data.target_gear] || '';
+            document.getElementById('upgradeModal').classList.add('visible');
+        }
+
+        async function approveUpgrade() {
+            if (!pendingUpgrade) return;
+            document.getElementById('upgradeModal').classList.remove('visible');
+            try {
+                const res = await fetch('/api/approve-upgrade', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        target_gear: pendingUpgrade.target_gear,
+                        min_required_gear: pendingUpgrade.min_required_gear || pendingUpgrade.target_gear,
+                        source: 'ai_upgrade_request'
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    currentGear = pendingUpgrade.target_gear;
+                    updateUI({current_gear: currentGear});
+                    loadEvents();
+                    const messages = document.getElementById('chatMessages');
+                    const sysMsg = document.createElement('div');
+                    sysMsg.className = 'message system';
+                    sysMsg.textContent = '档位已升级到 ' + gearData[currentGear].name;
+                    messages.appendChild(sysMsg);
+                    messages.scrollTop = messages.scrollHeight;
+                    // [Bug 3 fix] 不再自动重发消息，避免链式升级
+                    // 如果有待处理的消息，提示用户手动重新发送
+                    if (lastUserMessage) {
+                        const hintMsg = document.createElement('div');
+                        hintMsg.className = 'message system';
+                        hintMsg.textContent = '💡 档位已就绪，您可以重新发送消息或直接回车继续';
+                        hintMsg.style.opacity = '0.7';
+                        messages.appendChild(hintMsg);
+                        messages.scrollTop = messages.scrollHeight;
+                        // 预填上一条消息方便用户
+                        document.getElementById('chatInput').value = lastUserMessage;
+                    }
+                }
+            } catch(e) {
+                console.error('升级失败:', e);
+            }
+            pendingUpgrade = null;
+        }
+
+        async function rejectUpgrade() {
+            document.getElementById('upgradeModal').classList.remove('visible');
+            const messages = document.getElementById('chatMessages');
+            const sysMsg = document.createElement('div');
+            sysMsg.className = 'message system';
+            sysMsg.textContent = '权限已锁定，当前档位限制将严格执行';
+            messages.appendChild(sysMsg);
+            messages.scrollTop = messages.scrollHeight;
+
+            // 后端记录 REJECT 事件
+            try {
+                await fetch('/api/reject-upgrade', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        current_gear: currentGear,
+                        rejected_gear: pendingUpgrade ? pendingUpgrade.target_gear : 0,
+                        reason: pendingUpgrade ? pendingUpgrade.reason : 'unknown'
+                    })
+                });
+            } catch (err) { console.error('记录拒绝事件失败:', err); }
+
+            pendingUpgrade = null;
+        }
+
+        // 重置会话
+        async function resetSession() {
+            if (!confirm('确定要重置会话吗？这将清除所有聊天记录并重置档位到 EMBRACE。')) {
+                return;
+            }
+            try {
+                // 完全重置状态
+                await fetch('/api/reset', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+                // 清空聊天消息
+                const messages = document.getElementById('chatMessages');
+                messages.innerHTML = '<div class="message ai">会话已重置。当前处于 EMBRACE 档位（完全约束模式）。</div>';
+                // 更新 UI
+                currentGear = 1;
+                updateUI({ current_gear: 1 });
+                // 恢复简单模式任务入口显示
+                document.getElementById('simpleTaskEntry').classList.remove('hidden');
+                loadEvents();
+            } catch(e) {
+                console.error('重置失败:', e);
+                alert('重置失败，请刷新页面');
+            }
+        }
+    </script>
+
+    <!-- 升级申请模态弹窗 -->
+    <div class="upgrade-modal" id="upgradeModal">
+        <div class="upgrade-content">
+            <div class="upgrade-icon">⚠</div>
+            <div class="upgrade-title">权限升级申请</div>
+            <div class="upgrade-row">当前档位：<span id="upgradeCurrentGear">—</span></div>
+            <div class="upgrade-row">申请档位：<span id="upgradeTargetGear">—</span></div>
+            <div class="upgrade-row">原因：<span id="upgradeReason">—</span></div>
+            <div class="upgrade-row">风险等级：<span id="upgradeRisk">—</span></div>
+            <div class="upgrade-changes" id="upgradeChanges"></div>
+            <div class="upgrade-buttons">
+                <button class="upgrade-btn approve" onclick="approveUpgrade()">批准升级</button>
+                <button class="upgrade-btn reject" onclick="rejectUpgrade()">保持当前档位</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

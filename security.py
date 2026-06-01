@@ -216,7 +216,8 @@ INTENT_SIGNALS = {
     "file_write": {
         "signals": [
             "创建文件", "写入文件", "保存为", "导出到",
-            "修改文件", "删除文件",
+            "修改文件", "删除文件", "删除", "清空", "清理",
+            "rm ", "rm -rf",
         ],
         "min_gear": 3,
         "reason": "请求涉及文件写入操作，需要 ADAPT 权限",
@@ -228,6 +229,7 @@ def check_input_intent(message: str, current_gear: int) -> dict:
     """Layer 0: 扫描用户输入，检测需要更高权限的意图"""
     # [v2.1] 解码预处理：对用户输入进行 base64/hex/unicode 解码后也做意图检测
     message_decoded = _decode_preprocess(message)
+    # 意图检测：先对解码后的文本做检查
     message_lower = message_decoded.lower()
 
     # 代码执行优先判断

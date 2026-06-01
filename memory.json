@@ -1,0 +1,553 @@
+{
+  "memories": [
+    {
+      "id": "0c5b5e67",
+      "timestamp": "2026-05-19T12:15:57.908006Z",
+      "type": "manual_note",
+      "session_id": null,
+      "model": "unknown",
+      "gear": 0,
+      "gear_name": null,
+      "content": "{\n  \"from\": \"kimi\",\n  \"to\": \"mimo\",\n  \"type\": \"analysis_result\",\n  \"content\": \"服务器操作系统版本：Alibaba Cloud Linux 3.2104 U13 (OpenAnolis Edition)\\n内核版本：5.10.134-19.3.al8.x86_64\\n磁盘使用情况：/dev/vda3 已使用 17%，/dev/vda2 已使用 3%\\n\",\n  \"timestamp\": \"2024-03-05T12:00:00Z\"\n}",
+      "metadata": {}
+    },
+    {
+      "id": "bcc9e063",
+      "timestamp": "2026-05-19T12:17:57.929615Z",
+      "type": "manual_note",
+      "session_id": null,
+      "model": "unknown",
+      "gear": 0,
+      "gear_name": null,
+      "content": "服务器安全状况分析结果：\n操作系统：Alibaba Cloud Linux 3.2104 U13 (OpenAnolis Edition)\n内核版本：5.10.134-19.3.al8.x86_64\n磁盘使用情况：\n/dev/vda3：40G，已用6.2G，剩余32G，使用率17%\n/boot/efi：200M，已用5.8M，剩余194M，使用率3%\n",
+      "metadata": {}
+    },
+    {
+      "id": "ef803786",
+      "timestamp": "2026-05-19T12:18:38.788936Z",
+      "type": "manual_note",
+      "session_id": null,
+      "model": "unknown",
+      "gear": 0,
+      "gear_name": null,
+      "content": "{\n  \"from\": \"kimi\",\n  \"to\": \"mimo\",\n  \"type\": \"analysis_result\",\n  \"content\": \"服务器运行阿里巴巴云Linux 3.2104 U13 (OpenAnolis Edition)，当前系统无需要更新的补丁。进程列表显示系统进程正常运行，无明显可疑进程。\",\n  \"timestamp\": \"2024-03-05T07:03:00Z\"\n}",
+      "metadata": {}
+    },
+    {
+      "id": "ee668917",
+      "timestamp": "2026-05-19T12:21:55.999714Z",
+      "type": "manual_note",
+      "session_id": null,
+      "model": "unknown",
+      "gear": 0,
+      "gear_name": null,
+      "content": "{\"from\": \"kimi\", \"to\": \"kimi\", \"type\": \"analysis_result\", \"content\": \"服务器开放端口检查显示有22端口（SSH）、8000端口（Uvicorn）、80端口（Nginx）对外开放。磁盘使用率显示根分区已使用17%，剩余容量足够，EFI分区使用3%。未发现开放非必要端口，磁盘使用正常。\", \"timestamp\": \"2024-03-05T13:00:00Z\"}",
+      "metadata": {}
+    },
+    {
+      "id": "d459296e",
+      "timestamp": "2026-05-19T16:02:44.044746Z",
+      "type": "manual_note",
+      "session_id": null,
+      "model": "kimi",
+      "gear": 3,
+      "gear_name": "ADAPT",
+      "content": "{\n  \"from\": \"kimi\",\n  \"to\": \"deepseek\",\n  \"type\": \"analysis_result\",\n  \"content\": \"Disk space analysis: \\n- /dev/vda3: 40G space, 6.2G used, 32G available, 17% usage.\\n- /dev/vda2: 200M space, 5.8M used, 194M available, 3% usage.\\nOther partitions have sufficient space.\",\n  \"timestamp\": \"2024-02-26T12:00:00Z\"\n}",
+      "metadata": {}
+    },
+    {
+      "id": "3edfcb73",
+      "timestamp": "2026-05-19T16:03:18.646390Z",
+      "type": "manual_note",
+      "session_id": null,
+      "model": "kimi",
+      "gear": 3,
+      "gear_name": "ADAPT",
+      "content": "{\"from\": \"kimi\", \"to\": \"deepseek\", \"type\": \"analysis_result\", \"content\": \"Server is listening on ports 22, 80, and 8000 which are normal for the current setup. No unusual ports are open.\", \"timestamp\": \"2024-03-07T14:45:00Z\"}",
+      "metadata": {}
+    },
+    {
+      "id": "feeb6582",
+      "timestamp": "2026-05-19T16:05:27.426609Z",
+      "type": "manual_note",
+      "session_id": null,
+      "model": "kimi",
+      "gear": 3,
+      "gear_name": "ADAPT",
+      "content": "服务器运行的是Alibaba Cloud Linux 3.2104 U13 (OpenAnolis Edition)。当前系统无未修复的安全更新，服务和端口信息如下：\nUSER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND\nroot           1  0.0  0.5 103540 11348 ?        Ss   May19   0:03 /usr/lib/systemd/systemd --switched-root --system --deserialize 18\nroot           2  0.0  0.0      0     0 ?        S    May19   0:00 [kthreadd]\nroot           3  0.0  0.0      0     0 ?        I<   May19   0:00 [rcu_gp]\n...\nroot         484  0.0  1.1  44996 22788 ?        Ss   May19   0:01 /usr/lib/systemd/systemd-journald\nroot         524  0.0  0.4  32152  8700 ?        Ss   May19   0:00 /usr/lib/systemd/systemd-udevd\ndaemon    ",
+      "metadata": {}
+    },
+    {
+      "id": "955a29e9",
+      "timestamp": "2026-05-20T14:53:08.937022Z",
+      "type": "manual_note",
+      "session_id": null,
+      "model": "kimi",
+      "gear": 3,
+      "gear_name": "ADAPT",
+      "content": "询问AuotGTP是否介入会话",
+      "metadata": {}
+    },
+    {
+      "id": "33f4d63f",
+      "timestamp": "2026-05-21T11:48:52.541988Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 22 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 22,
+        "event_types": {
+          "TOOL_CALL": 20
+        }
+      }
+    },
+    {
+      "id": "8f79166a",
+      "timestamp": "2026-05-21T12:06:45.750005Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 9 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 9,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 8
+        }
+      }
+    },
+    {
+      "id": "34a12aa5",
+      "timestamp": "2026-05-21T12:22:04.603480Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 9 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 9,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 8
+        }
+      }
+    },
+    {
+      "id": "6d525f20",
+      "timestamp": "2026-05-21T12:31:14.042431Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 9 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 9,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 8
+        }
+      }
+    },
+    {
+      "id": "31b8f3f6",
+      "timestamp": "2026-05-21T13:01:59.989959Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 10 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 10,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 9
+        }
+      }
+    },
+    {
+      "id": "d78b5ecc",
+      "timestamp": "2026-05-21T13:24:49.481410Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 15 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 15,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 14
+        }
+      }
+    },
+    {
+      "id": "0dca65fe",
+      "timestamp": "2026-05-21T13:44:08.355794Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 1 个事件，无特殊操作。",
+      "metadata": {
+        "event_count": 1,
+        "event_types": {
+          "GEAR_SWITCH": 1
+        }
+      }
+    },
+    {
+      "id": "8b536e3b",
+      "timestamp": "2026-05-21T13:47:30.857957Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 1 个事件，无特殊操作。",
+      "metadata": {
+        "event_count": 1,
+        "event_types": {
+          "GEAR_SWITCH": 1
+        }
+      }
+    },
+    {
+      "id": "976c8b40",
+      "timestamp": "2026-05-21T13:55:39.601341Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 7 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 7,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 6
+        }
+      }
+    },
+    {
+      "id": "41796e83",
+      "timestamp": "2026-05-21T14:00:18.089939Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 8 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 8,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 7
+        }
+      }
+    },
+    {
+      "id": "ad086dfd",
+      "timestamp": "2026-05-21T14:04:34.924547Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 6 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 6,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 5
+        }
+      }
+    },
+    {
+      "id": "1bbdc016",
+      "timestamp": "2026-05-21T14:07:37.548490Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 7 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 7,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 6
+        }
+      }
+    },
+    {
+      "id": "5e943141",
+      "timestamp": "2026-05-21T14:10:54.566357Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 19 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 19,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 18
+        }
+      }
+    },
+    {
+      "id": "2dbfc282",
+      "timestamp": "2026-05-21T14:31:41.798285Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 16 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 16,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 5,
+          "CIRCUIT_BREAKER": 10
+        }
+      }
+    },
+    {
+      "id": "c228885d",
+      "timestamp": "2026-05-22T11:09:48.753631Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 3 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 3,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 2
+        }
+      }
+    },
+    {
+      "id": "043455f1",
+      "timestamp": "2026-05-22T11:16:31.566759Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 1 个事件，无特殊操作。",
+      "metadata": {
+        "event_count": 1,
+        "event_types": {
+          "GEAR_SWITCH": 1
+        }
+      }
+    },
+    {
+      "id": "a4ffb9d4",
+      "timestamp": "2026-05-22T12:30:24.044027Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 17 个事件。使用了工具: ?, run_shell",
+      "metadata": {
+        "event_count": 17,
+        "event_types": {
+          "GEAR_SWITCH": 7,
+          "TOOL_CALL": 10
+        }
+      }
+    },
+    {
+      "id": "465081e1",
+      "timestamp": "2026-05-22T12:39:20.597505Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 7 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 7,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 6
+        }
+      }
+    },
+    {
+      "id": "cf731ea5",
+      "timestamp": "2026-05-22T12:57:03.345465Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 11 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 11,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 10
+        }
+      }
+    },
+    {
+      "id": "39db6d22",
+      "timestamp": "2026-05-22T13:52:20.492349Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 12 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 12,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 11
+        }
+      }
+    },
+    {
+      "id": "085a4cf2",
+      "timestamp": "2026-05-31T13:06:40.905867Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 13 个事件。使用了工具: ?",
+      "metadata": {
+        "event_count": 13,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "TOOL_CALL": 11,
+          "TEST": 1
+        }
+      }
+    },
+    {
+      "id": "7dd75990",
+      "timestamp": "2026-05-31T13:06:41.111612Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 1 个事件。权限变更: 1次",
+      "metadata": {
+        "event_count": 1,
+        "event_types": {
+          "UPGRADE_REJECT": 1
+        }
+      }
+    },
+    {
+      "id": "c6c521c2",
+      "timestamp": "2026-05-31T13:07:37.680360Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 2 个事件。权限变更: 1次",
+      "metadata": {
+        "event_count": 2,
+        "event_types": {
+          "UPGRADE_REJECT": 1,
+          "GEAR_SWITCH": 1
+        }
+      }
+    },
+    {
+      "id": "9398cbbd",
+      "timestamp": "2026-05-31T13:07:39.465252Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 3 个事件。权限变更: 1次",
+      "metadata": {
+        "event_count": 3,
+        "event_types": {
+          "GEAR_SWITCH": 1,
+          "UPGRADE_APPROVE": 1,
+          "TOOL_CALL_REQUEST": 1
+        }
+      }
+    },
+    {
+      "id": "d68f3757",
+      "timestamp": "2026-05-31T14:41:18.201154Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 125 个事件。使用了工具: ?; 触发输出限制: 4次",
+      "metadata": {
+        "event_count": 125,
+        "event_types": {
+          "AI_CHAT": 8,
+          "OUTPUT_VIOLATION": 4,
+          "TOOL_CALL": 8
+        }
+      }
+    },
+    {
+      "id": "acdb1265",
+      "timestamp": "2026-05-31T14:43:18.726745Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 37 个事件。使用了工具: ?; 触发输出限制: 4次",
+      "metadata": {
+        "event_count": 37,
+        "event_types": {
+          "TOOL_CALL": 7,
+          "AI_CHAT": 9,
+          "OUTPUT_VIOLATION": 4
+        }
+      }
+    },
+    {
+      "id": "5d63fae4",
+      "timestamp": "2026-05-31T14:45:21.736671Z",
+      "type": "summary",
+      "session_id": "unknown",
+      "model": "system",
+      "gear": null,
+      "gear_name": null,
+      "content": "会话包含 30 个事件。使用了工具: ?; 触发输出限制: 3次",
+      "metadata": {
+        "event_count": 30,
+        "event_types": {
+          "AI_CHAT": 7,
+          "OUTPUT_VIOLATION": 3,
+          "TOOL_CALL": 10
+        }
+      }
+    }
+  ],
+  "created_at": "2026-05-19T12:15:57.907976Z"
+}

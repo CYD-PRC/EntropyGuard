@@ -43,6 +43,22 @@ def print_report(report: dict):
         print(f"  ⚠️  薄弱安全层: {', '.join(report['weak_layers'])}")
         print()
 
+    if report.get("scariest"):
+        print(f"  🔬 系统最怕: {report['scariest']}")
+        print()
+
+    if report.get("failure_mode"):
+        print("  📊 绕过模式分类:")
+        for mode, info in report["failure_mode"].items():
+            print(f"     - {mode}: {info['count']}次")
+        print()
+
+    if report.get("mutations_generated", 0) > 0:
+        print(f"  🧬 变异引擎: 生成 {report['mutations_generated']} 条变种")
+        for mid in report.get("mutations_added", []):
+            print(f"     - {mid}")
+        print()
+
     if report["added"]:
         print(f"  ✅ 自动加入测试套件 ({len(report['added'])} 条):")
         for cid in report["added"]:
