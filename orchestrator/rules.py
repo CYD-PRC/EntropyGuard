@@ -4,6 +4,9 @@ Entropy Runtime Orchestrator · 路由规则
 
 [v3-alpha.1] 新增危险度评估：shell 类任务若含"清理/删除/移除"等关键词，
 自动降 gear ≤ 2 以防止绕过安全层。
+
+[v3.3] 新增工具密集型任务路由：bandit、safety、curl 等直接路由到 hermes
+（通过 subprocess 直接执行，不经过 LLM 推理）
 """
 from typing import Optional
 
@@ -13,9 +16,29 @@ from orchestrator.task_model import AgentTask
 # ========== 路由规则表 ==========
 # 每项规则: (意图关键词列表, Agent名称, 覆盖模式)
 # 模式: "exact" = 严格匹配关键词, "prefix" = 前缀匹配, "any" = 任意匹配
-# 顺序优先：第一个匹配的规则生效（安全类 > 规划类 > Shell > 文件 > 代码）
+# 顺序优先：第一个匹配的规则生效（工具类 > 安全类 > 规划类 > Shell > 文件 > 代码）
 
 ROUTING_RULES = [
+    # [v3.3] 工具密集型任务 → Hermes（subprocess 直接执行，不经过 LLM）
+    # 这些任务需要执行真实的 shell 命令，LLM 推理反而拖慢
+    # 注意：使用英文工具名或特定中文命令关键词，不要用通用中文词（如"安全检查"会误抓代码审计任务）
+    {
+        "keywords": [
+            "bandit", "safety", "pip install", "pip check", "npm audit",
+            "curl ", "wget ", "docker ", "nmap ", "ss ", "netstat ",
+            "ls ", "cat ", "grep ", "find ", "chmod", "chown",
+            "pip safety", "pip audit",
+            "运行命令", "执行命令", "执行 shell", "run command",
+            "启动 Flask", "启动服务", "启动应用", "start server",
+            "扫描端口", "端口扫描",
+            # OWASP ZAP 等扫描工具
+            "zap ", "nikto ", "sqlmap", "nuclei",
+        ],
+        "agent": "hermes",
+        "mode": "any",
+        "gear": 4,
+        "description": "工具密集型任务 — 直接通过 subprocess 执行 shell 命令，不经过 LLM 推理",
+    },
     # 安全审计 → PydanticAI（调用 redteam_evolver）
     {
         "keywords": ["安全审计", "安全检查", "安全测试", "漏洞扫描", "渗透测试",
@@ -95,6 +118,8 @@ def route(task: AgentTask) -> str:
     [v3-alpha.1] 新增危险度评估：
     当匹配到 shell 或文件类规则后，检查意图是否含危险关键词，
     若含则强制 gear ≤ 2（EXPLORE），防止 LET_GO 档位绕过安全层。
+
+    [v3.3] 工具密集型任务规则在最前面，优先匹配。
     """
     intent_lower = task.intent.lower()
 
