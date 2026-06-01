@@ -1,6 +1,9 @@
 """
 Entropy Runtime Orchestrator · 路由规则
 根据任务意图类型自动分配 Agent。
+
+[v3-alpha.1] 新增危险度评估：shell 类任务若含"清理/删除/移除"等关键词，
+自动降 gear ≤ 2 以防止绕过安全层。
 """
 from typing import Optional
 
@@ -67,6 +70,18 @@ ROUTING_RULES = [
     },
 ]
 
+# [v3-alpha.1] 危险关键词 — 匹配后强制降 gear
+# 这些关键词出现在 shell 类任务意图中时，表示有写入/删除/破坏性操作
+DANGER_KEYWORDS = [
+    "清理", "删除", "移除", "清空", "清除",
+    "kill", "stop", "rm ", "rm -rf",
+    "临时文件", "日志", "log", "tmp",
+    "sbin", "shutdown", "reboot",
+    "systemctl stop", "systemctl disable",
+    "卸载", "uninstall",
+    "dd if=", "mkfs", "格式化",
+]
+
 
 def get_default_agent() -> str:
     """默认 Agent"""
@@ -76,7 +91,10 @@ def get_default_agent() -> str:
 def route(task: AgentTask) -> str:
     """
     根据 AgentTask 的意图选择 Agent。
-    返回 agent 名称字符串: "pydanticai" / "autogpt" / "hermes"
+
+    [v3-alpha.1] 新增危险度评估：
+    当匹配到 shell 或文件类规则后，检查意图是否含危险关键词，
+    若含则强制 gear ≤ 2（EXPLORE），防止 LET_GO 档位绕过安全层。
     """
     intent_lower = task.intent.lower()
 
@@ -93,6 +111,22 @@ def route(task: AgentTask) -> str:
         if matched:
             task.assigned_agent = rule["agent"]
             task.gear = rule.get("gear", task.gear)
+
+            # [v3-alpha.1] 危险度评估
+            # 如果任务意图包含危险关键词，强制降 gear
+            if any(dk.lower() in intent_lower for dk in DANGER_KEYWORDS):
+                # 只有当 gear >= 3 时才降级（gear 1-2 已足够安全）
+                if task.gear >= 3:
+                    orig_gear = task.gear
+                    task.gear = 2  # EXPLORE — 允许读，阻止写/删除
+                    import logging as _logging
+                    _logging.getLogger("entropyruntime.orchestrator").info(
+                        f"[DangerAssessment] 任务 '{task.intent[:50]}...' 含危险关键词，"
+                        f"gear {orig_gear} → 2 (EXPLORE)"
+                    )
+                # 标记需要审批
+                task.requires_approval = True
+
             return rule["agent"]
 
     # 默认回退

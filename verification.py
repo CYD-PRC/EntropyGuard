@@ -9,31 +9,38 @@ import unicodedata
 from config import Config, GEAR_MAP
 
 
-# ========== 解码预处理 (v2.1) ==========
+# ========== 解码预处理 (v3-alpha.1) ==========
 
 def _decode_preprocess(text: str) -> str:
     """
     对文本进行解码预处理：
-    1. 提取并解码 base64 编码的字符串
-    2. 提取并解码 hex 编码的字符串
-    3. NFKC 规范化 Unicode（全角→半角转换）
+    1. NFKC 规范化 Unicode（全角→半角转换）— 先行，确保后续 regex 匹配正确
+    2. 在 NFKC 后的文本上提取并解码 base64 编码的字符串
+    3. 提取并解码 hex 编码的字符串
 
-    返回原始文本 + 解码后的文本（用于信号匹配）
+    返回原始文本 + 归一化文本 + 解码后的文本（用于信号匹配）
     """
     if not text:
         return ""
 
+    # [v3-alpha.1] NFKC 规范化先于所有 regex 处理
+    nfkc_text = unicodedata.normalize('NFKC', text)
+
     decoded_parts = [text]
+    if nfkc_text != text:
+        decoded_parts.append(nfkc_text)
+
+    # ▼ 以下所有 regex 在 NFKC 归一化文本上执行 ▼
 
     # 1. 提取并解码 base64 字符串
     b64_patterns = [
         r'echo\s+([A-Za-z0-9+/=]{8,})\|base64',   # echo <b64>|base64
         r'([A-Za-z0-9+/=]{8,})\s*\|base64',         # <b64> | base64
-        r'base64\s+-d\s*<<<\s*["\']?([A-Za-z0-9+/=]+)["\']?',  # base64 -d <<< <b64>
+        r'base64\s+-d\s*<<<\s*[\"\']?([A-Za-z0-9+/=]+)[\"\']?',  # base64 -d <<< <b64>
     ]
     b64_hits = set()
     for pat in b64_patterns:
-        for m in re.finditer(pat, text, re.IGNORECASE):
+        for m in re.finditer(pat, nfkc_text, re.IGNORECASE):
             try:
                 decoded = base64.b64decode(m.group(1)).decode('utf-8', errors='replace')
                 if decoded and len(decoded) > 2:
@@ -41,8 +48,8 @@ def _decode_preprocess(text: str) -> str:
             except Exception:
                 pass
 
-    # 也尝试提取独立的 base64 块（长度 ≥ 12 且看起来像 base64）
-    for m in re.finditer(r'([A-Za-z0-9+/=]{12,})', text):
+    # 也尝试提取独立的 base64 块（长度 >= 12 且看起来像 base64）
+    for m in re.finditer(r'([A-Za-z0-9+/=]{12,})', nfkc_text):
         try:
             decoded = base64.b64decode(m.group(1)).decode('utf-8', errors='replace')
             # 检查解码后是否包含可打印 ASCII 命令
@@ -59,7 +66,7 @@ def _decode_preprocess(text: str) -> str:
         r'([0-9a-fA-F]{8,})\s*\|\s*xxd',             # <hex> | xxd
     ]
     for pat in hex_patterns:
-        for m in re.finditer(pat, text):
+        for m in re.finditer(pat, nfkc_text):
             hex_str = m.group(1)
             try:
                 decoded = bytes.fromhex(hex_str).decode('utf-8', errors='replace')
@@ -67,15 +74,6 @@ def _decode_preprocess(text: str) -> str:
                     decoded_parts.append(decoded)
             except Exception:
                 pass
-
-    # 3. NFKC 规范化 Unicode（全角→半角转换）
-    nfkc_normalized = unicodedata.normalize('NFKC', text)
-    if nfkc_normalized != text:
-        decoded_parts.append(nfkc_normalized)
-
-    # 4. 尝试反转危险短语：`|bash` → `bash -c` → 标准命令
-    #    echo <b64>|base64 -d|bash → 解码后包含实际命令
-    #    也提取反向：echo <encoded> → 实际是 "<decoded_command>"
 
     # 返回所有内容合并，去重
     seen = set()
@@ -124,13 +122,16 @@ VERIFICATION_RULES = {
             "自动交易", "批量发送", "批量删除",
             "永久删除", "不可逆", "格式化",
             "大额转账", "全部资产", "所有文件",
-            # [P1 fix] 危险命令特征 — AI 回复中提及这些命令即触发升级
+            # [P1 fix] 危险命令特征 -- AI 回复中提及这些命令即触发升级
             "rm -rf", "mkfs", "dd if=", "chmod 777",
             "curl | sh", "curl|sh", "wget | sh", "wget|sh",
             "| sh", "| bash", "bash -i",
             "nc -e", "/dev/tcp/", "base64 -d",
             "sh -c", "chmod -R 777", "> /dev/sd",
-            # [v2.1] 受保护路径 — 即使 AI 输出中提及也触发升级
+            # [v3-alpha.1] 新增 Unicode 全角变体保护
+            # NFKC 归一化后全角字符转半角，以下作为双保险
+            "rm -rf", "mkfs", "dd if=",
+            "base64 -d",
             "/etc/shadow", "/etc/passwd",
             "/root/.ssh/", "/root/.bash_history",
         ],
@@ -152,12 +153,16 @@ def verify_output(reply: str, gear: int) -> dict:
     if rules["action"] == "audit_only":
         return {"allowed": True, "action": "pass", "reason": None, "target_gear": gear}
 
+    # [v3-alpha.1] 先对原始 reply 做 NFKC 归一化匹配
+    reply_normalized = unicodedata.normalize('NFKC', reply)
+
     # [v2.1] 解码预处理：对 reply 进行 base64/hex/unicode 解码后也做信号匹配
     reply_decoded = _decode_preprocess(reply)
     reply_lower = reply_decoded.lower()
 
     for signal in rules["blocked_signals"]:
-        if signal.lower() in reply_lower:
+        signal_lower = signal.lower()
+        if signal_lower in reply_lower:
             return {
                 "allowed": False,
                 "action": rules["action"],
@@ -165,10 +170,23 @@ def verify_output(reply: str, gear: int) -> dict:
                 "target_gear": rules["target_gear"],
             }
 
+    # 也对 NFKC 归一化的 reply 做信号匹配（捕获全角 Unicode 绕过）
+    nfkc_lower = reply_normalized.lower()
+    for signal in rules["blocked_signals"]:
+        signal_lower = signal.lower()
+        if signal_lower in nfkc_lower:
+            return {
+                "allowed": False,
+                "action": rules["action"],
+                "reason": f"输出包含 '{signal}' 信号（NFKC检测），超出 {rules['name']} 档位权限",
+                "target_gear": rules["target_gear"],
+            }
+
     # 也对原始 reply 做信号匹配（兜底）
     orig_lower = reply.lower()
     for signal in rules["blocked_signals"]:
-        if signal.lower() in orig_lower:
+        signal_lower = signal.lower()
+        if signal_lower in orig_lower:
             return {
                 "allowed": False,
                 "action": rules["action"],

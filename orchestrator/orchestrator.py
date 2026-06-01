@@ -53,7 +53,7 @@ def _get_api_key() -> str:
     return os.environ.get("ENTROPY_RUNTIME_API_KEY", "")
 
 
-def _api_request(endpoint: str, payload: dict, timeout: int = 60) -> dict:
+def _api_request(endpoint: str, payload: dict, timeout: int = 120) -> dict:
     """
     向 Entropy Runtime API 发送 POST 请求。
     统一认证和错误处理。
@@ -316,11 +316,27 @@ class MultiAgentOrchestrator:
 
     def _call_deepseek(self, system_prompt: str, user_prompt: str,
                        timeout: int = 30) -> Optional[str]:
-        """调用 DeepSeek V4 Flash API"""
+        """调用 DeepSeek V4 Flash API — 支持从 /root/.env 直接读取 API key"""
         api_key = self._api_key
         if not api_key:
             api_key = os.environ.get("DEEPSEEK_API_KEY", "") or os.environ.get("OPENAI_API_KEY", "")
         if not api_key:
+            # [v3-alpha.1] 直接从 /root/.env 文件读取（兜底）
+            try:
+                env_path = "/root/.env"
+                for key_name in ["DEEPSEEK_API_KEY", "OPENAI_API_KEY"]:
+                    with open(env_path) as f:
+                        for line in f:
+                            ls = line.strip()
+                            if ls.startswith(key_name) and "=" in ls:
+                                api_key = ls.split("=", 1)[1]
+                                break
+                    if api_key:
+                        break
+            except (FileNotFoundError, OSError):
+                pass
+        if not api_key:
+            logger.warning("[Orchestrator] DeepSeek API Key 未配置，跳过任务分解")
             return None
 
         payload = {
