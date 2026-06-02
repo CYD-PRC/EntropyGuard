@@ -789,11 +789,13 @@ class MultiAgentOrchestrator:
 
     def execute(self, task: AgentTask) -> TaskResult:
         """
-        执行子任务。
+        执行子任务，带自动重试和 Agent 降级。
 
-        [v3.3] Agent-aware 执行：
-          - hermes 任务 → 子进程直接执行 shell 命令（绕过 LLM，<10s 完成）
-          - pydanticai/autogpt 任务 → 走 /api/chat LLM 推理路径
+        [v3.7] 失败后自动换 Agent 重试，最多 3 次：
+          第1次 → assigned_agent（如 pydanticai）
+          第2次 → hermes（终端执行）
+          第3次 → autogpt（自主规划）
+          重试间隔 2s → 5s，每次失败均写 episode 记录
 
         Args:
             task: AgentTask 实例（含 assigned_agent 和 intent）
@@ -801,45 +803,99 @@ class MultiAgentOrchestrator:
         Returns:
             TaskResult: 执行结果
         """
-        result: TaskResult
-        if task.assigned_agent == "hermes":
-            result = self._execute_hermes(task)
-        else:
-            # 默认：通过 /api/chat 执行（给 pydanticai 双倍超时，工具调用密集型）
-            timeout = 240 if task.assigned_agent in ("autogpt",) else 120
-            payload = {
-                "message": task.intent,
-                "gear": task.gear,
-                "model_id": task.model_id or DEFAULT_MODEL,
-                "actor": f"orchestrator:{task.assigned_agent or 'unknown'}",
-                "session_id": f"orch-{task.id}",
-            }
+        retry_agents = [
+            task.assigned_agent or "hermes",
+            "hermes",
+            "autogpt",
+        ]
+        retry_delays = [0, 2, 5]
+        retry_history: list[dict] = []
+        t_start = time.time()
+        result: Optional[TaskResult] = None
 
-            resp = _api_request("/api/chat", payload, timeout=timeout)
+        for attempt in range(3):
+            current_agent = retry_agents[attempt]
+            delay = retry_delays[attempt]
 
-            success = resp.get("success", False)
-            if not success:
-                result = TaskResult(
-                    task_id=task.id,
-                    success=False,
-                    error=resp.get("error", "API 调用失败"),
-                    agent=task.assigned_agent,
-                    gear=task.gear,
-                    validation_status=resp.get("validation_status"),
+            if attempt > 0:
+                logger.info(
+                    f"[Orchestrator v3.7] {task.id}: 第{attempt+1}次重试，"
+                    f"等待{delay}s，切换 Agent: {current_agent}"
                 )
+                time.sleep(delay)
+
+            t_attempt = time.time()
+
+            # — 执行 —
+            if current_agent == "hermes":
+                result = self._execute_hermes(task)
             else:
-                result = TaskResult(
-                    task_id=task.id,
-                    success=True,
-                    output=resp.get("reply", ""),
-                    tool_calls=resp.get("tool_calls", []) or [],
-                    agent=task.assigned_agent,
-                    gear=task.gear,
-                    validation_status=resp.get("validation_status", "none"),
+                timeout = 240 if current_agent in ("autogpt",) else 120
+                payload = {
+                    "message": task.intent,
+                    "gear": task.gear,
+                    "model_id": task.model_id or DEFAULT_MODEL,
+                    "actor": f"orchestrator:{current_agent}",
+                    "session_id": f"orch-{task.id}-a{attempt+1}",
+                }
+                resp = _api_request("/api/chat", payload, timeout=timeout)
+                success = resp.get("success", False)
+
+                if success:
+                    result = TaskResult(
+                        task_id=task.id,
+                        success=True,
+                        output=resp.get("reply", ""),
+                        tool_calls=resp.get("tool_calls", []) or [],
+                        agent=current_agent,
+                        gear=task.gear,
+                        validation_status=resp.get("validation_status", "none"),
+                    )
+                else:
+                    result = TaskResult(
+                        task_id=task.id,
+                        success=False,
+                        error=resp.get("error", "API 调用失败"),
+                        agent=current_agent,
+                        gear=task.gear,
+                        validation_status=resp.get("validation_status"),
+                    )
+
+            attempt_duration = round(time.time() - t_attempt, 2)
+            retry_history.append({
+                "attempt": attempt + 1,
+                "agent": current_agent,
+                "success": result.success,
+                "duration": attempt_duration,
+                "error": result.error,
+            })
+
+            result.elapsed_seconds = round(time.time() - t_start, 2)
+
+            # 非最终尝试失败 → 写 episode 记录失败原因
+            if not result.success and attempt < 2:
+                self._write_episode(
+                    result,
+                    retry_count=attempt + 1,
+                    retry_history=list(retry_history),
                 )
 
-        # [v3.6] 写入 MessageBoard episode 记忆
-        self._write_episode(result)
+            # 成功 → 写 episode 并返回
+            if result.success:
+                self._write_episode(
+                    result,
+                    retry_count=attempt,
+                    retry_history=list(retry_history),
+                )
+                return result
+
+        # 3 次全部失败
+        assert result is not None
+        self._write_episode(
+            result,
+            retry_count=3,
+            retry_history=list(retry_history),
+        )
         return result
 
     # ----------------------------------------------------------------
@@ -1300,8 +1356,10 @@ class MultiAgentOrchestrator:
     #  [v3.6] MessageBoard episode 桥接
     # ----------------------------------------------------------------
 
-    def _write_episode(self, result: TaskResult):
-        """将任务执行结果写入 MessageBoard episode 记忆"""
+    def _write_episode(self, result: TaskResult, **extra):
+        """将任务执行结果写入 MessageBoard episode 记忆
+        [v3.7] 支持 retry_count / retry_history 等额外字段
+        """
         try:
             duration = result.elapsed_seconds if result.elapsed_seconds else 0.0
             content = {
@@ -1312,6 +1370,7 @@ class MultiAgentOrchestrator:
                 "error": result.error,
                 "duration": duration,
             }
+            content.update(extra)  # [v3.7] 合并 retry_count, retry_history 等
             payload = {
                 "memory_type": "episode",
                 "content": content,
