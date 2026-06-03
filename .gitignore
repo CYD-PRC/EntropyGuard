@@ -32,3 +32,27 @@ Thumbs.db
 # Testing artifacts
 test_*.py
 test-targets/
+
+# 虚拟环境
+venv310/
+test-targets/flask-venv*/
+test-targets/django-venv*/
+*.venv/
+
+# 备份文件
+*.bak.*
+*.bak
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 运行时文件
+memory.json
+events.json
+/tmp/
+*.log
+
+# 环境变量
+.env
+.env.*
