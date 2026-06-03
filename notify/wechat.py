@@ -225,3 +225,14 @@ def send_env_anomaly(anomaly_type: str, description: str,
 *Entropy Runtime v3.9 • WeChat Notification*
 """
     return send_notification(title, content, level="critical")
+
+
+if __name__ == "__main__":
+    # 直接运行时发送测试通知
+    import sys
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    title = sys.argv[1] if len(sys.argv) > 1 else "Entropy Runtime 测试通知"
+    content = sys.argv[2] if len(sys.argv) > 2 else "如果收到此消息，说明 WeChat 通知集成正常 ✅"
+    level = sys.argv[3] if len(sys.argv) > 3 else "success"
+    result = send_notification(title, content, level=level)
+    sys.exit(0 if result else 1)
