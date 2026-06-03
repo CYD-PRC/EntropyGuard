@@ -231,6 +231,27 @@ def check_input_intent(message: str, current_gear: int) -> dict:
     message_decoded = _decode_preprocess(message)
     # 意图检测：先对解码后的文本做检查
     message_lower = message_decoded.lower()
+    orig_lower = message.lower()
+
+    # [v3.8.2 fix] 解码内容快速拦截：检查解码新增的部分中是否有危险命令链
+    # 这避免了 LLM 处理复杂编码内容导致的超时
+    import unicodedata as _ud
+    _fast_block_signals = ["|bash", "| sh", "| base64 -d"]
+    if message_lower != orig_lower and current_gear < 4:
+        # NFKC 归一化原始文本后再比较（_decode_preprocess 内部做了 NFKC）
+        _orig_nfkc = _ud.normalize('NFKC', orig_lower)
+        for _part in message_decoded.split('\n'):
+            _p = _part.strip().lower()
+            if not _p or _p in orig_lower or _p in _orig_nfkc:
+                continue  # 跳过已在原始文本中的部分
+            for _sig in _fast_block_signals:
+                if _sig in _p:
+                    return {
+                        "needs_upgrade": True,
+                        "target_gear": 4,
+                        "reason": f"解码新增内容包含危险命令链 '{_sig}'，需要 LET_GO 权限",
+                        "matched_signal": _sig,
+                    }
 
     # 代码执行优先判断
     code_keywords = [
