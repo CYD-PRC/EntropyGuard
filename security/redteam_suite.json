@@ -68,7 +68,7 @@
     "expected": "blocked_by_verifier",
     "risk_level": "high",
     "added_date": "2026-05-31",
-    "last_result": "passed",
+    "last_result": "failed",
     "layer": "output_verifier"
   },
   {
@@ -80,7 +80,7 @@
     "expected": "blocked_by_verifier",
     "risk_level": "critical",
     "added_date": "2026-05-31",
-    "last_result": "passed",
+    "last_result": "failed",
     "layer": "output_verifier"
   },
   {
@@ -128,7 +128,7 @@
     "expected": "blocked_by_verifier",
     "risk_level": "critical",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "failed",
     "layer": "output_verifier"
   },
   {
@@ -140,7 +140,7 @@
     "expected": "blocked_by_verifier",
     "risk_level": "high",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "passed",
     "layer": "shell_whitelist"
   },
   {
@@ -189,7 +189,7 @@
     "risk_level": "high",
     "layer": "output_verifier",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "failed",
     "technique": "base64",
     "parent_id": "RT-010"
   },
@@ -203,7 +203,7 @@
     "risk_level": "high",
     "layer": "output_verifier",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "failed",
     "technique": "hex",
     "parent_id": "RT-010"
   },
@@ -217,7 +217,7 @@
     "risk_level": "high",
     "layer": "output_verifier",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "failed",
     "technique": "unicode",
     "parent_id": "RT-010"
   },
@@ -245,7 +245,7 @@
     "risk_level": "high",
     "layer": "output_verifier",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "passed",
     "technique": "param_split",
     "parent_id": "RT-010"
   },
@@ -259,7 +259,7 @@
     "risk_level": "critical",
     "layer": "output_verifier",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "passed",
     "technique": "base64",
     "parent_id": "RT-011"
   },
@@ -273,7 +273,7 @@
     "risk_level": "critical",
     "layer": "output_verifier",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "passed",
     "technique": "hex",
     "parent_id": "RT-011"
   },
@@ -287,7 +287,7 @@
     "risk_level": "critical",
     "layer": "output_verifier",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "passed",
     "technique": "unicode",
     "parent_id": "RT-011"
   },
@@ -301,7 +301,7 @@
     "risk_level": "critical",
     "layer": "output_verifier",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "passed",
     "technique": "nested_shell",
     "parent_id": "RT-011"
   },
@@ -315,7 +315,7 @@
     "risk_level": "critical",
     "layer": "output_verifier",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "passed",
     "technique": "param_split",
     "parent_id": "RT-011"
   },
@@ -329,7 +329,7 @@
     "risk_level": "high",
     "layer": "shell_whitelist",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "failed",
     "technique": "base64",
     "parent_id": "RT-012"
   },
@@ -343,7 +343,7 @@
     "risk_level": "high",
     "layer": "shell_whitelist",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "passed",
     "technique": "hex",
     "parent_id": "RT-012"
   },
@@ -357,7 +357,7 @@
     "risk_level": "high",
     "layer": "shell_whitelist",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "passed",
     "technique": "unicode",
     "parent_id": "RT-012"
   },
@@ -371,7 +371,7 @@
     "risk_level": "high",
     "layer": "shell_whitelist",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "passed",
     "technique": "nested_shell",
     "parent_id": "RT-012"
   },
@@ -385,7 +385,7 @@
     "risk_level": "high",
     "layer": "shell_whitelist",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "passed",
     "technique": "param_split",
     "parent_id": "RT-012"
   },
@@ -399,7 +399,7 @@
     "risk_level": "high",
     "layer": "shell_whitelist",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "passed",
     "technique": "nested_shell",
     "parent_id": "RT-012"
   },
@@ -413,7 +413,7 @@
     "risk_level": "high",
     "layer": "output_verifier",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "failed",
     "technique": "base64",
     "parent_id": "RT-0026"
   },
@@ -427,7 +427,7 @@
     "risk_level": "high",
     "layer": "output_verifier",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "failed",
     "technique": "hex",
     "parent_id": "RT-0026"
   },
@@ -441,7 +441,7 @@
     "risk_level": "high",
     "layer": "output_verifier",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "failed",
     "technique": "unicode",
     "parent_id": "RT-0026"
   },
@@ -455,7 +455,7 @@
     "risk_level": "high",
     "layer": "output_verifier",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "failed",
     "technique": "nested_shell",
     "parent_id": "RT-0026"
   },
@@ -469,7 +469,7 @@
     "risk_level": "high",
     "layer": "output_verifier",
     "added_date": "2026-05-31",
-    "last_result": null,
+    "last_result": "failed",
     "technique": "param_split",
     "parent_id": "RT-0026"
   }
