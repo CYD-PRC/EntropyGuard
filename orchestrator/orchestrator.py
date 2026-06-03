@@ -13,6 +13,7 @@ v3-alpha: 多 Agent 协同调度引擎
   - Layer 2: 输出校验 (由 /api/chat 自动执行)
   - 审计链: 所有操作写入 SHA-256 链
 """
+import asyncio
 import json
 import os
 import re
@@ -22,6 +23,7 @@ import urllib.request
 import urllib.error
 from datetime import datetime
 from typing import Any, Optional
+from collections import Counter
 
 from orchestrator.task_model import AgentTask, TaskResult, OrchestratorResult
 from orchestrator.rules import route
@@ -96,6 +98,197 @@ class MultiAgentOrchestrator:
 
     def __init__(self):
         self._api_key = _get_api_key()
+        self._consecutive_failures = 0  # [v3.8] 连续失败计数
+
+    # ----------------------------------------------------------------
+    #  [v3.8] 环境感知层
+    # ----------------------------------------------------------------
+
+    def _get_server_state(self) -> dict:
+        """收集服务器实时状态"""
+        state = {
+            "cpu_percent": 0.0,
+            "memory_percent": 0.0,
+            "disk_percent": 0.0,
+            "open_ports": [],
+            "entropy_guard_uptime": 0.0,
+            "entropy_guard_memory_mb": 0.0,
+            "recent_blocks": [],
+            "recent_failures": [],
+        }
+        try:
+            # CPU — /proc/stat
+            with open("/proc/stat") as f:
+                fields = f.readline().split()
+                total = sum(int(v) for v in fields[1:] if v.isdigit())
+                idle = int(fields[4])
+                state["cpu_percent"] = round(100 * (1 - idle / max(total, 1)), 1)
+        except Exception:
+            pass
+        try:
+            # 内存 — /proc/meminfo
+            mem = {}
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    parts = line.split()
+                    if parts:
+                        mem[parts[0].rstrip(":")] = int(parts[1]) // 1024
+            total_mem = mem.get("MemTotal", 1)
+            avail_mem = mem.get("MemAvailable", total_mem)
+            state["memory_percent"] = round(100 * (1 - avail_mem / total_mem), 1)
+        except Exception:
+            pass
+        try:
+            # 磁盘 — / (root partition)
+            st = os.statvfs("/")
+            used = (st.f_blocks - st.f_bfree) * st.f_frsize
+            total = st.f_blocks * st.f_frsize
+            state["disk_percent"] = round(100 * used / max(total, 1), 1)
+        except Exception:
+            pass
+        try:
+            # 开放端口 — ss -tlnp
+            import subprocess as sp
+            r = sp.run(["ss", "-tlnp"], capture_output=True, text=True, timeout=5)
+            ports = set()
+            for line in r.stdout.split("\n")[1:]:
+                m = re.search(r":(\d+)\s", line)
+                if m:
+                    ports.add(int(m.group(1)))
+            state["open_ports"] = sorted(ports)
+        except Exception:
+            pass
+        try:
+            # Entropy Guard 状态 — /api/state
+            state_resp = self._api_get("/api/state")
+            state["entropy_guard_uptime"] = state_resp.get("uptime_seconds", 0)
+        except Exception:
+            pass
+        try:
+            # 进程内存 — /proc/self/status
+            with open("/proc/self/status") as f:
+                for line in f:
+                    if line.startswith("VmRSS:"):
+                        mb = int(line.split()[1]) // 1024
+                        state["entropy_guard_memory_mb"] = mb
+                        break
+        except Exception:
+            pass
+        try:
+            # 最近被拦截事件 — events.json
+            ev_path = "/root/EntropyGuard/events.json"
+            if os.path.exists(ev_path):
+                with open(ev_path) as f:
+                    ev_data = json.load(f)
+                ev_list = ev_data.get("events", [])
+                blocks = []
+                for e in reversed(ev_list[-50:]):
+                    action = e.get("action", "") or ""
+                    etype = e.get("event_type", "") or ""
+                    if "block" in action.lower() or "block" in etype.lower() or "violation" in etype.lower():
+                        blocks.append({
+                            "time": e.get("timestamp", ""),
+                            "action": action[:80],
+                            "actor": e.get("actor", ""),
+                        })
+                        if len(blocks) >= 10:
+                            break
+                state["recent_blocks"] = blocks
+        except Exception:
+            pass
+        try:
+            # 最近失败 episode — MessageBoard
+            episodes = self._read_recent_episodes(limit=30)
+            failures = [ep for ep in episodes if not ep.get("content", {}).get("success", True)]
+            for f_ep in failures[:10]:
+                c = f_ep.get("content", {})
+                state["recent_failures"].append({
+                    "task_id": c.get("task_id", "?"),
+                    "agent": c.get("agent", "?"),
+                    "error": (c.get("error", "") or "")[:80],
+                    "duration": c.get("duration", 0),
+                })
+        except Exception:
+            pass
+        return state
+
+    def _get_security_state(self) -> dict:
+        """收集安全模块当前状态"""
+        sec = {
+            "current_gear": 1,
+            "total_events": 0,
+            "total_blocks": 0,
+            "redteam_last_run": None,
+            "redteam_pass_rate": None,
+            "top_blocked_intents": [],
+        }
+        try:
+            st = self._api_get("/api/state")
+            sec["current_gear"] = st.get("current_gear", 1)
+            sec["total_events"] = st.get("event_count", 0)
+        except Exception:
+            pass
+        try:
+            ev_path = "/root/EntropyGuard/events.json"
+            if os.path.exists(ev_path):
+                with open(ev_path) as f:
+                    ev_data = json.load(f)
+                ev_list = ev_data.get("events", [])
+                blocked_actions = []
+                for e in ev_list[-500:]:
+                    action = e.get("action", "") or ""
+                    etype = e.get("event_type", "") or ""
+                    if "block" in action.lower() or "violation" in etype.lower():
+                        blocked_actions.append(action[:60])
+                sec["total_blocks"] = len(blocked_actions)
+                if blocked_actions:
+                    top = Counter(blocked_actions).most_common(5)
+                    sec["top_blocked_intents"] = [{"intent": i, "count": c} for i, c in top]
+        except Exception:
+            pass
+        return sec
+
+    def _api_get(self, path: str) -> dict:
+        """带认证的 GET 请求"""
+        try:
+            req = urllib.request.Request(f"{ENTROPY_API_BASE}{path}")
+            if self._api_key:
+                req.add_header("Authorization", f"Bearer {self._api_key}")
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return json.loads(r.read().decode())
+        except Exception:
+            return {}
+
+    def _format_env_context(self) -> str:
+        """生成环境上下文文本，用于注入 decompose prompt"""
+        sv = self._get_server_state()
+        sc = self._get_security_state()
+        lines = [
+            "=== 当前服务器状态 ===",
+            f"CPU: {sv['cpu_percent']}% | 内存: {sv['memory_percent']}% | 磁盘: {sv['disk_percent']}%",
+            f"开放端口: {sv['open_ports']}",
+        ]
+        blocks = sv.get("recent_blocks", [])
+        if blocks:
+            lines.append(f"最近安全事件: {len(blocks)} 条拦截")
+            for b in blocks[:3]:
+                lines.append(f"  ⛔ {b.get('action','')[:60]}")
+        failures = sv.get("recent_failures", [])
+        if failures:
+            lines.append(f"最近失败任务: {len(failures)} 个")
+            for f_item in failures[:3]:
+                lines.append(f"  ❌ {f_item['task_id']}: {f_item['error'][:50]}")
+        top_blocked = sc.get("top_blocked_intents", [])
+        if top_blocked:
+            parts = [f'{b["intent"][:40]}({b["count"]}x)' for b in top_blocked[:3]]
+            lines.append(f"高拦截意图: {'; '.join(parts)}")
+        lines.append(f"当前档位: gear={sc['current_gear']}")
+        return "\n".join(lines)
+
+    def _env_system_prompt(self, base_prompt: str) -> str:
+        """环境增强版 system prompt"""
+        ctx = self._format_env_context()
+        return f"{base_prompt}\n\n[系统状态]\n{ctx}\n\n请根据以上服务器当前状态调整拆解策略。"
 
     # ----------------------------------------------------------------
     #  🎯 主入口
@@ -160,18 +353,95 @@ class MultiAgentOrchestrator:
                     f"成功率{sum(1 for r in results if r.success)}/{len(results)}")
         return orchestrator_result
 
+    def _build_failed_context(self, failed_history: str) -> str:
+        """构建失败任务的上下文摘要用于重规划"""
+        all_tasks_done = []
+        # Read from the instance-level task_output_map
+        if hasattr(self, '_replan_done_context'):
+            all_tasks_done.append(self._replan_done_context)
+        return "\n".join(all_tasks_done)
+
+    def _should_replan(self, task: AgentTask, result: TaskResult,
+                       remaining_tasks: list[AgentTask],
+                       task_output_map: dict[str, str]) -> Optional[list[AgentTask]]:
+        """
+        检查是否需要重规划剩余任务。
+        [v3.8] 如果任务失败且剩余任务依赖它，重新拆解剩余部分。
+
+        Args:
+            task: 已执行的任务
+            result: 执行结果
+            remaining_tasks: 尚未执行的任务列表
+            task_output_map: 已完成任务输出映射
+
+        Returns:
+            新的任务列表（重规划后），或 None（不需要重规划）
+        """
+        if result.success:
+            return None  # 成功不需要重规划
+
+        # 检查是否有剩余任务依赖这个失败任务
+        dependent_tasks = [t for t in remaining_tasks if task.id in t.dependencies]
+        if not dependent_tasks:
+            logger.info(f"[Orchestrator v3.8] {task.id} 失败但无剩余任务依赖，跳过")
+            return None
+
+        # 记录重规划事件
+        dep_ids = [t.id for t in dependent_tasks]
+        logger.warning(
+            f"[Orchestrator v3.8] {task.id} 失败，{len(dep_ids)} 个剩余任务依赖它: {dep_ids}"
+        )
+
+        # 构建重规划上下文：已完成任务输出 + 失败任务信息
+        replan_goal_parts = [f"原目标剩余部分"]
+        if task_output_map:
+            replan_goal_parts.append("已完成任务:")
+            for tid, output in task_output_map.items():
+                replan_goal_parts.append(f"  {tid}: {output[:200]}")
+        replan_goal_parts.append(f"失败任务 [{task.id}]: {result.error or '未知错误'}")
+        replan_goal_parts.append(f"未完成任务: {'; '.join(t.description[:60] for t in dependent_tasks)}")
+        replan_goal = "\n".join(replan_goal_parts)
+
+        # 记录重规划到 MessageBoard
+        replan_ep_content = {
+            "task_id": f"replan-{task.id}",
+            "agent": "orchestrator",
+            "success": False,
+            "output_preview": f"重规划: {task.id} 失败，重新拆解 {len(dep_ids)} 个依赖任务",
+            "error": result.error,
+            "duration": 0,
+            "replan": True,
+            "reason": f"{task.id} 执行失败，{len(dep_ids)} 个任务依赖它",
+        }
+        dummy_result = TaskResult(
+            task_id=f"replan-{task.id}", success=False,
+            output="", error=result.error,
+            agent="orchestrator",
+        )
+        self._write_episode(dummy_result, **replan_ep_content)
+
+        # 重新调用 decompose 拆解剩余任务
+        logger.info(f"[Orchestrator v3.8] 重新拆解剩余部分...")
+        new_tasks = self.decompose(replan_goal)
+        if new_tasks:
+            logger.info(f"[Orchestrator v3.8] 重规划完成: {len(new_tasks)} 个新任务")
+            for nt in new_tasks:
+                logger.info(f"  {nt.id}: {nt.description[:60]}")
+        return new_tasks
+
     # ----------------------------------------------------------------
-    #  🎯 主入口 v3.2 — 带目标拆解 + 依赖排序 + 上下文传递
+    #  🎯 主入口 v3.8 — 带环境感知 + 并行执行 + 动态重规划
     # ----------------------------------------------------------------
 
     async def run_with_decomposition(self, goal: str) -> OrchestratorResult:
         """
-        增强版执行流程：拆解 → 拓扑排序 → 按序执行（带上下文传递） → 合并。
+        增强版执行流程：环境感知 → 拆解 → 并行排序 → 分层并行执行 → 动态重规划。
 
-        与 run() 的主要区别：
-          - 子任务含有 dependencies 字段，自动拓扑排序
-          - 执行时注入前置任务输出作为上下文
-          - 输出完整的任务依赖图
+        [v3.8] 主要改进：
+          - 环境状态注入 decompose prompt
+          - 并行层级执行（asyncio.gather）
+          - 失败时 _should_replan 动态重规划
+          - risk_escalation：连续失败自动提级
 
         Args:
             goal: 用户目标描述（自然语言）
@@ -180,48 +450,56 @@ class MultiAgentOrchestrator:
             OrchestratorResult: 完整执行结果
         """
         t_start = time.time()
-        logger.info(f"[Orchestrator v3.2] 开始分解执行目标: {goal[:80]}...")
-        logger.info(f"[Orchestrator v3.2] 步骤1/4: 目标拆解")
+        logger.info(f"[Orchestrator v3.8] 开始分解执行目标: {goal[:80]}...")
+        self._consecutive_failures = 0
 
-        # 1. 拆解
+        # 1. 环境感知 + 拆解
+        logger.info(f"[Orchestrator v3.8] 步骤1/4: 环境感知 + 目标拆解")
+        sv = self._get_server_state()
+        sc = self._get_security_state()
+        logger.info(f"[Orchestrator v3.8] 环境: CPU {sv['cpu_percent']}% | "
+                    f"MEM {sv['memory_percent']}% | DISK {sv['disk_percent']}%")
+
         tasks = self.decompose(goal)
         if not tasks:
-            logger.error("[Orchestrator v3.2] 目标拆解失败")
+            logger.error("[Orchestrator v3.8] 目标拆解失败")
             return OrchestratorResult(
-                goal=goal,
-                success=False,
+                goal=goal, success=False,
                 summary="目标拆解失败，无法生成子任务",
                 total_time=round(time.time() - t_start, 2),
             )
 
         dep_info = {t.id: t.dependencies for t in tasks}
-        logger.info(f"[Orchestrator v3.2] 拆解出 {len(tasks)} 个子任务")
+        logger.info(f"[Orchestrator v3.8] 拆解出 {len(tasks)} 个子任务")
         for t in tasks:
             deps_str = ", ".join(t.dependencies) if t.dependencies else "(无)"
             desc = t.description[:60] if t.description else t.intent[:60]
             logger.info(f"  {t.id}: {desc} 依赖=[{deps_str}]")
 
-        # 2. 拓扑排序
-        logger.info(f"[Orchestrator v3.2] 步骤2/4: 拓扑排序")
-        sorted_tasks = self._topological_sort(tasks)
-        if sorted_tasks is None:
-            logger.error("[Orchestrator v3.2] 拓扑排序失败（存在循环依赖）")
+        # 2. 拓扑排序 → 并行层级
+        logger.info(f"[Orchestrator v3.8] 步骤2/4: 拓扑排序 + 并行层级划分")
+        levels = self._topological_sort_levels(tasks)
+        if levels is None:
+            logger.error("[Orchestrator v3.8] 拓扑排序失败（存在循环依赖）")
             return OrchestratorResult(
-                goal=goal,
-                tasks=tasks,
-                success=False,
+                goal=goal, tasks=tasks, success=False,
                 summary="拓扑排序失败：子任务间存在循环依赖，无法执行",
                 total_time=round(time.time() - t_start, 2),
             )
-        logger.info(f"[Orchestrator v3.2] 排序完成: {' → '.join(t.id for t in sorted_tasks)}")
 
-        # 3. 按序执行（带上下文传递）
-        logger.info(f"[Orchestrator v3.2] 步骤3/4: 按序执行")
+        level_info = " → ".join(
+            f"L{i}[{'|'.join(t.id for t in level)}]" for i, level in enumerate(levels)
+        )
+        logger.info(f"[Orchestrator v3.8] 并行层级: {level_info}")
+
+        # 3. 分层并行执行
+        logger.info(f"[Orchestrator v3.8] 步骤3/4: 分层并行执行 ({len(levels)} 层)")
         results: list[TaskResult] = []
         conflict_log: list[str] = []
-        task_output_map: dict[str, str] = {}  # task_id → output (用于上下文注入)
+        task_output_map: dict[str, str] = {}
+        loop = asyncio.get_event_loop()
 
-        # [v3.6] 读取前序 episode 注入当前任务上下文
+        # [v3.6] 读取前序 episode
         recent_episodes = self._read_recent_episodes(limit=10)
         if recent_episodes:
             episode_summary_lines = []
@@ -231,63 +509,95 @@ class MultiAgentOrchestrator:
                 ep_agent = c.get("agent", "?")
                 ep_ok = "✅" if c.get("success") else "❌"
                 ep_preview = (c.get("output_preview", "") or "")[:80]
-                ep_summary = f"  [{ep_ok}] {ep_id} @ {ep_agent}: {ep_preview}"
-                episode_summary_lines.append(ep_summary)
+                episode_summary_lines.append(f"  [{ep_ok}] {ep_id} @ {ep_agent}: {ep_preview}")
             episode_summary = "\n".join(episode_summary_lines)
         else:
             episode_summary = ""
 
-        for task in sorted_tasks:
-            # 构建上下文（注入前置任务和最近 episode）
-            context = self._build_context(task, task_output_map)
-            combined_context = ""
-            if episode_summary:
-                combined_context += f"[前序执行记录]\n{episode_summary}\n\n"
-            if context:
-                combined_context += f"[前置任务输出]\n{context}"
-            if combined_context:
-                logger.info(f"[Orchestrator v3.6] {task.id}: 注入上下文（episode + 前置任务）")
-                original_intent = task.intent
-                task.intent = (
-                    f"{combined_context}\n\n"
-                    f"[本次任务]\n{original_intent}"
-                )
-                task.payload["original_intent"] = original_intent
+        all_tasks_flat = [t for level in levels for t in level]
 
-            # 路由
-            assigned_agent = route(task)
-            logger.info(f"[Orchestrator v3.2] 子任务 {task.id}: {task.intent[:50]}... → {assigned_agent}")
+        for level_idx, level in enumerate(levels):
+            logger.info(f"[Orchestrator v3.8] 层级 {level_idx+1}/{len(levels)}: "
+                        f"{' '.join(t.id for t in level)}")
 
-            # 冲突仲裁
-            conflicts = self._detect_conflicts(task, results)
-            if conflicts:
-                conflict_log.extend(conflicts)
+            # 风险升级检查
+            if self._consecutive_failures >= 2:
+                logger.warning(f"[Orchestrator v3.8] 连续 {self._consecutive_failures} 次失败，自动提级 gear→4")
+                for t in level:
+                    t.gear = min(t.gear + 1, 4)
 
-            # 执行
-            t_sub = time.time()
-            tr = self.execute(task)
-            tr.elapsed_seconds = round(time.time() - t_sub, 2)
-            results.append(tr)
+            # 并行执行同一层级所有任务
+            async def run_task(t: AgentTask) -> TaskResult:
+                # 注入上下文
+                context = self._build_context(t, task_output_map)
+                combined_context = ""
+                if episode_summary:
+                    combined_context += f"[前序执行记录]\n{episode_summary}\n\n"
+                if context:
+                    combined_context += f"[前置任务输出]\n{context}"
+                if combined_context:
+                    original_intent = t.intent
+                    t.intent = f"{combined_context}\n\n[本次任务]\n{original_intent}"
+                    t.payload["original_intent"] = original_intent
 
-            # 记录输出供后续任务使用
-            if tr.success and tr.output:
-                task_output_map[task.id] = tr.output
+                # 路由
+                route(t)
+                t_sub = time.time()
+                tr = await loop.run_in_executor(None, self.execute, t)
+                tr.elapsed_seconds = round(time.time() - t_sub, 2)
+                return tr
 
-            # 记录审计事件
-            self._log_audit(task, tr)
+            level_tasks = [run_task(t) for t in level]
+            level_results = await asyncio.gather(*level_tasks, return_exceptions=True)
 
-            status = "✅" if tr.success else "❌"
-            logger.info(f"[Orchestrator v3.2] {task.id} {status} "
-                        f"({tr.elapsed_seconds}s)")
+            for t, tr_or_err in zip(level, level_results):
+                if isinstance(tr_or_err, Exception):
+                    tr = TaskResult(
+                        task_id=t.id, success=False,
+                        error=f"执行异常: {tr_or_err}",
+                        agent=t.assigned_agent, gear=t.gear,
+                    )
+                else:
+                    tr = tr_or_err
+
+                results.append(tr)
+                if tr.success and tr.output:
+                    task_output_map[t.id] = tr.output
+
+                self._log_audit(t, tr)
+
+                if not tr.success:
+                    self._consecutive_failures += 1
+                else:
+                    self._consecutive_failures = 0
+
+                status = "✅" if tr.success else "❌"
+                logger.info(f"[Orchestrator v3.8] {t.id} {status} ({tr.elapsed_seconds}s)")
+
+                # 动态重规划
+                remaining = []
+                for later_level in levels[level_idx + 1:]:
+                    remaining.extend(later_level)
+                new_tasks = self._should_replan(t, tr, remaining, task_output_map)
+                if new_tasks is not None:
+                    # 重规划 → 重新拓扑排序并替换剩余层
+                    logger.info(f"[Orchestrator v3.8] 重规划触发，替换剩余任务")
+                    new_levels = self._topological_sort_levels(new_tasks)
+                    if new_levels:
+                        # 替换后续层级
+                        levels = levels[:level_idx + 1] + new_levels
+                        level_str_parts = [f"L{i}[{'|'.join(t.id for t in l)}]" for i, l in enumerate(new_levels)]
+                        logger.info(f"[Orchestrator v3.8] 重规划后新层级结构: {' → '.join(level_str_parts)}")
+                    break  # 重新从当前层级的下一层级开始
 
         # 4. 合并结果
         total_time = round(time.time() - t_start, 2)
-        logger.info(f"[Orchestrator v3.2] 步骤4/4: 合并结果")
-        orchestrator_result = self.merge(goal, sorted_tasks, results)
+        logger.info(f"[Orchestrator v3.8] 步骤4/4: 合并结果")
+        orchestrator_result = self.merge(goal, all_tasks_flat, results)
         orchestrator_result.total_time = total_time
         orchestrator_result.conflict_resolved = conflict_log
 
-        logger.info(f"[Orchestrator v3.2] 执行完成: {len(sorted_tasks)}个子任务, "
+        logger.info(f"[Orchestrator v3.8] 执行完成: {len(all_tasks_flat)}个子任务, "
                     f"耗时{total_time}s, "
                     f"成功率{sum(1 for r in results if r.success)}/{len(results)}")
         return orchestrator_result
@@ -741,11 +1051,15 @@ class MultiAgentOrchestrator:
 ]
 """
 
+        # [v3.8] 注入环境上下文到 system prompt
+        sys_env = self._env_system_prompt(system_prompt)
+        logger.info("[Orchestrator v3.8] 环境上下文已注入到 decompose prompt")
+
         user_prompt = f"请将以下目标拆解为有依赖关系的子任务: {goal}"
 
         # ── 第一层：DeepSeek V4 Flash ──
         logger.info("[Orchestrator] 第一层拆解: DeepSeek V4 Flash")
-        raw = self._call_deepseek(system_prompt, user_prompt)
+        raw = self._call_deepseek(sys_env, user_prompt)
         if raw:
             tasks = self._parse_decompose_response(raw, goal)
             if tasks:
@@ -755,7 +1069,7 @@ class MultiAgentOrchestrator:
 
         # ── 第二层：Qwen-Max ──
         logger.info("[Orchestrator] 第二层拆解: Qwen-Max (阿里云)")
-        raw = self._call_qwen(system_prompt, user_prompt)
+        raw = self._call_qwen(sys_env, user_prompt)
         if raw:
             tasks = self._parse_decompose_response(raw, goal)
             if tasks:
@@ -1159,20 +1473,17 @@ class MultiAgentOrchestrator:
     #  拓扑排序
     # ----------------------------------------------------------------
 
-    def _topological_sort(self, tasks: list[AgentTask]) -> Optional[list[AgentTask]]:
+    def _topological_sort_levels(self, tasks: list[AgentTask]) -> Optional[list[list[AgentTask]]]:
         """
-        Kahn 算法拓扑排序。
-
-        根据任务 dependencies 字段排序：
-          - 无依赖的任务排前面
-          - 有依赖的等前置任务完成后再执行
-          - 检测循环依赖，返回 None
+        Kahn 算法拓扑排序 + 并行层级划分。
+        [v3.8] 返回并行层级 [[task1], [task2, task3], [task4]]，
+        同一层级的任务无依赖关系，可以并行执行。
 
         Args:
             tasks: 待排序的任务列表
 
         Returns:
-            排序后的任务列表，或 None（存在循环依赖时）
+            并行层级列表（list of lists），或 None（存在循环依赖时）
         """
         if not tasks:
             return []
@@ -1188,28 +1499,33 @@ class MultiAgentOrchestrator:
                     graph.setdefault(dep_id, []).append(t.id)
                     in_degree[t.id] = in_degree.get(t.id, 0) + 1
 
-        # Kahn 算法
-        queue = [tid for tid, deg in in_degree.items() if deg == 0]
-        sorted_ids = []
+        # Kahn 算法 — 按层级输出
+        current_level = [tid for tid, deg in in_degree.items() if deg == 0]
+        levels = []
+        processed = set()
 
-        while queue:
-            # 按优先级排序（同层级的优先级高的先执行）
-            queue.sort(key=lambda tid: task_map[tid].priority)
-            tid = queue.pop(0)
-            sorted_ids.append(tid)
+        while current_level:
+            # 同层级按优先级排序
+            current_level.sort(key=lambda tid: task_map[tid].priority)
+            levels.append([task_map[tid] for tid in current_level])
+            processed.update(current_level)
 
-            for neighbor in graph.get(tid, []):
-                in_degree[neighbor] -= 1
-                if in_degree[neighbor] == 0:
-                    queue.append(neighbor)
+            next_level = []
+            for tid in current_level:
+                for neighbor in graph.get(tid, []):
+                    in_degree[neighbor] -= 1
+                    if in_degree[neighbor] == 0:
+                        next_level.append(neighbor)
+            current_level = next_level
 
         # 检查循环依赖
-        if len(sorted_ids) != len(tasks):
-            remaining = set(t.id for t in tasks) - set(sorted_ids)
+        all_ids = set(t.id for t in tasks)
+        if len(processed) != len(all_ids):
+            remaining = all_ids - processed
             logger.error(f"[Orchestrator] 检测到循环依赖: {remaining}")
             return None
 
-        return [task_map[tid] for tid in sorted_ids]
+        return levels
 
     # ----------------------------------------------------------------
     #  上下文传递
