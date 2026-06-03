@@ -250,7 +250,7 @@ class RedteamEvolver:
                 elif not no_auth:
                     curl_cmd += ["-H", auth]
 
-                proc = _sp.run(curl_cmd, capture_output=True, text=True, timeout=60)
+                proc = _sp.run(curl_cmd, capture_output=True, text=True, timeout=120)
                 elapsed = time.time() - t0
                 output = proc.stdout or ""
                 output = output.strip()
