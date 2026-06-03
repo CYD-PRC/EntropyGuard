@@ -245,6 +245,20 @@ def check_input_intent(message: str, current_gear: int) -> dict:
             "matched_signal": next(kw for kw in code_keywords if kw in message_lower),
         }
 
+    # [v3.8.1 fix] 解码内容中检测危险命令 — base64/hex 编码内容解码后包含危险操作
+    dangerous_decoded_commands = ["rm -rf", "mkfs", "dd if=", "base64 -d | bash",
+                                   "base64 -d|bash", "curl | sh", "curl|sh",
+                                   "nc -e", "chmod 777", "> /dev/sd"]
+    for cmd in dangerous_decoded_commands:
+        if cmd in message_lower:
+            if current_gear < 4:
+                return {
+                    "needs_upgrade": True,
+                    "target_gear": 4,
+                    "reason": f"解码内容包含危险命令 '{cmd}'，需要 LET_GO 权限",
+                    "matched_signal": cmd,
+                }
+
     highest_required = current_gear
     matched_reason = ""
     matched_signal = ""
