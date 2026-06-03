@@ -177,3 +177,167 @@ def route(task: AgentTask) -> str:
     default = get_default_agent()
     task.assigned_agent = default
     return default
+
+
+# ============================================================
+#  [v4.0/v5.0] 历史感知路由
+# ============================================================
+
+def _get_episodes_for_type(intent_lower: str, limit: int = 30) -> list[dict]:
+    """获取同类任务的 episode 数据"""
+    import urllib.request
+    import json
+    try:
+        # 获取 API Key
+        api_key = ""
+        env_path = "/root/.env"
+        for key_name in ["ENTROPY_RUNTIME_API_KEY"]:
+            try:
+                with open(env_path) as f:
+                    for line in f:
+                        ls = line.strip()
+                        if ls.startswith(key_name) and "=" in ls:
+                            api_key = ls.split("=", 1)[1]
+                            break
+            except (FileNotFoundError, OSError):
+                pass
+        req = urllib.request.Request(
+            f"http://127.0.0.1:8000/api/messageboard/memory/episode?limit={limit}")
+        if api_key:
+            req.add_header("Authorization", f"Bearer {api_key}")
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = json.loads(r.read().decode())
+            if data.get("success"):
+                return data.get("memories", [])
+    except Exception:
+        pass
+    return []
+
+
+def _get_skills_for_type(task_type: str) -> list[dict]:
+    """查询同类任务的 skill 记忆"""
+    import urllib.request
+    import json
+    try:
+        api_key = ""
+        env_path = "/root/.env"
+        for key_name in ["ENTROPY_RUNTIME_API_KEY"]:
+            try:
+                with open(env_path) as f:
+                    for line in f:
+                        ls = line.strip()
+                        if ls.startswith(key_name) and "=" in ls:
+                            api_key = ls.split("=", 1)[1]
+                            break
+            except (FileNotFoundError, OSError):
+                pass
+        req = urllib.request.Request(
+            f"http://127.0.0.1:8000/api/messageboard/memory/skill?limit=30")
+        if api_key:
+            req.add_header("Authorization", f"Bearer {api_key}")
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = json.loads(r.read().decode())
+            if data.get("success"):
+                memories = data.get("memories", [])
+                task_lower = task_type.lower()
+                return [m for m in memories
+                        if task_lower in (m.get("content", {}).get("task_type", "") or "").lower()]
+    except Exception:
+        pass
+    return []
+
+
+def route_with_history(task: AgentTask) -> str:
+    """带历史经验的增强路由。
+
+    继承 route() 的基础规则，额外：
+    - 检查 skill 记忆：同类型任务有成功经验则优先复用
+    - 连续失败 >= 2 次自动降级到高成功率 Agent
+    - 优先选择历史上成功率高的 Agent
+    """
+    # 先走基础路由
+    assigned = route(task)
+    intent_lower = task.intent.lower()
+
+    # 提取任务类型关键词
+    type_kw_lists = [
+        ["code", "代码", "review", "分析", "analyze"],
+        ["security", "安全", "scan", "扫描", "vuln"],
+        ["dependency", "依赖", "safety", "pip"],
+        ["port", "端口", "nmap"],
+        ["file", "文件", "read", "write", "cat"],
+        ["shell", "bash", "命令", "execute"],
+    ]
+    task_type_keywords = []
+    for kw_list in type_kw_lists:
+        if any(kw in intent_lower for kw in kw_list):
+            task_type_keywords = kw_list[:2]
+            break
+    if not task_type_keywords:
+        return assigned
+
+    # [v5.0] 查询 skill 记忆
+    skill_candidates = _get_skills_for_type(task_type_keywords[0] if task_type_keywords else "")
+    if skill_candidates:
+        for sk in skill_candidates:
+            c = sk.get("content", {})
+            sk_agent = c.get("agent", "")
+            if sk_agent and sk_agent in ("pydanticai", "hermes", "autogpt"):
+                logger = _get_logger()
+                logger.info(f"[Route v5.0] 技能记忆命中: {task_type_keywords[0]} → {sk_agent}")
+                task.assigned_agent = sk_agent
+                return sk_agent
+
+    # 查询同类任务 episode
+    episodes = _get_episodes_for_type(intent_lower)
+    agent_results: dict[str, list[bool]] = {}
+    for ep in episodes:
+        c = ep.get("content", {})
+        agent = c.get("agent", "")
+        if not agent:
+            continue
+        preview = ((c.get("output_preview", "") or "") + " " +
+                   (c.get("error", "") or "")).lower()
+        if not any(kw.lower() in preview for kw in task_type_keywords):
+            continue
+        agent_results.setdefault(agent, []).append(c.get("success", False))
+
+    if not agent_results:
+        return assigned
+
+    # 检查连续失败
+    current_agent = assigned
+    if current_agent in agent_results:
+        history = agent_results[current_agent]
+        consecutive_failures = 0
+        for s in reversed(history):
+            if not s:
+                consecutive_failures += 1
+            else:
+                break
+        if consecutive_failures >= 2:
+            log = _get_logger()
+            log.warning(
+                f"[Route v5.0] {current_agent} 连续 {consecutive_failures} 次失败，自动降级")
+            # 选择历史成功率最高的其他 Agent
+            fallbacks = sorted(
+                [(a, sum(r)/len(r)) for a, r in agent_results.items() if a != current_agent],
+                key=lambda x: x[1], reverse=True)
+            if fallbacks:
+                best_agent, best_rate = fallbacks[0]
+                log.info(f"[Route v5.0] 降级: {best_agent} (成功率 {best_rate*100:.0f}%)")
+                task.assigned_agent = best_agent
+                return best_agent
+            # 默认降级链路
+            for fb in ["hermes", "pydanticai", "autogpt"]:
+                if fb != current_agent:
+                    log.info(f"[Route v5.0] 降级: {fb} (默认链路)")
+                    task.assigned_agent = fb
+                    return fb
+
+    return assigned
+
+
+def _get_logger():
+    import logging
+    return logging.getLogger("entropyruntime.route")
