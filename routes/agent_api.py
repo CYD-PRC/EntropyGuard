@@ -226,6 +226,8 @@ async def ai_chat(request: Request):
             }
             result["validation_status"] = "blocked_by_verifier"
             result["verification"] = verification
+        else:
+            result["validation_status"] = "none"
 
     # [Post-success guard] 如果有工具调用说明 AI 已在执行，忽略升级申请
     if upgrade_request and result.get("tool_calls"):
