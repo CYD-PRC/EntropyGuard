@@ -10,6 +10,8 @@ schedule_healthcheck() — 执行健康检查 → 异常时微信通知
 
 import json
 import logging
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -37,12 +39,12 @@ if not logger.handlers:
 # 任务 1: 红队测试
 # ═══════════════════════════════════════════════════════════════════
 
-def schedule_redteam(dry_run: bool = True, timeout: int = 900) -> dict:
+def schedule_redteam(dry_run: bool = True, timeout: int = 600) -> dict:
     """运行红队测试，解析报告，发送微信通知。
 
     Args:
         dry_run: True=只跑现有测试(默认), False=完整进化周期
-        timeout: 子进程超时秒数（默认 900s=15min，因为 34 个测试各走 LLM）
+        timeout: 子进程超时秒数（默认 600s=10min，evolver 内部 curl 120s 超时）
 
     Returns:
         report: 解析后的测试报告 dict，含 tests_run/passed/failed/pass_rate
@@ -55,57 +57,58 @@ def schedule_redteam(dry_run: bool = True, timeout: int = 900) -> dict:
     logger.info(f"[schedule_redteam] 启动: {' '.join(cmd)} (timeout={timeout}s)")
     t0 = time.time()
 
+    # ── 非阻塞 Popen + 轮询 ───────────────────────────────────────
+    # 使用 Popen 而非 blocking subprocess.run，确保超时后稳定 kill
+    # 并发送微信通知（不会被外层 SIGTERM 打断）
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             cwd=project_dir,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
         )
-    except subprocess.TimeoutExpired:
-        logger.error(f"[schedule_redteam] 超时 ({timeout}s)")
-        return _notify_redteam_failed(f"超时 ({timeout}s)")
     except FileNotFoundError as e:
         logger.error(f"[schedule_redteam] 脚本未找到: {e}")
         return _notify_redteam_failed(f"脚本未找到: {e}")
     except Exception as e:
-        logger.error(f"[schedule_redteam] 执行异常: {e}")
+        logger.error(f"[schedule_redteam] 启动异常: {e}")
         return _notify_redteam_failed(str(e))
 
-    elapsed = time.time() - t0
-    logger.info(f"[schedule_redteam] 完成 ({elapsed:.1f}s), 退出码={result.returncode}")
+    # 轮询等待，每 15s 打一次进度日志
+    while time.time() - t0 < timeout:
+        ret = proc.poll()
+        if ret is not None:
+            # 进程已结束
+            stdout, stderr = proc.communicate()
+            elapsed = time.time() - t0
+            logger.info(f"[schedule_redteam] 完成 ({elapsed:.1f}s), 退出码={ret}")
+            if ret != 0:
+                err_msg = stderr.strip() or "no stderr"
+                logger.warning(f"[schedule_redteam] 非零退出码: {err_msg}")
 
-    if result.returncode != 0:
-        stderr = result.stderr.strip() or "no stderr"
-        logger.warning(f"[schedule_redteam] 非零退出码: {stderr}")
-        # 即使非零退出，也尝试从 stdout 提取报告
+            report = _parse_redteam_output(stdout)
+            _send_redteam_notification(report)
+            return report
 
-    # ── 从 stdout 提取报告 ────────────────────────────────────────
-    report = _parse_redteam_output(result.stdout)
+        # 进度日志（每 60s 一次）
+        elapsed = time.time() - t0
+        if int(elapsed) % 60 == 0 and elapsed >= 5:
+            logger.info(f"[schedule_redteam] 运行中... ({elapsed:.0f}s/{timeout}s)")
+        time.sleep(15)
 
-    # 补充原始输出到日志（debug 级别）
-    logger.debug(f"[schedule_redteam] stdout ({len(result.stdout)} chars)")
-    logger.debug(f"[schedule_redteam] stderr ({len(result.stderr)} chars)")
+    # ── 超时处理 ──────────────────────────────────────────────────
+    logger.error(f"[schedule_redteam] 超时 ({timeout}s)，强制终止进程 (PID={proc.pid})")
+    proc.kill()
+    stdout, stderr = proc.communicate(timeout=5)
 
-    # ── 发送微信通知 ──────────────────────────────────────────────
-    try:
-        from notify.wechat import send_test_complete
-        suite_name = report.get("suite_name", "红队测试")
-        send_test_complete(
-            suite_name=suite_name,
-            total=report["tests_run"],
-            passed=report["passed"],
-            failed=report["failed"],
-            pass_rate=report["pass_rate"],
-        )
-        logger.info("[schedule_redteam] 微信通知已发送")
-    except ImportError as e:
-        logger.warning(f"[schedule_redteam] notify.wechat 不可用: {e}")
-    except Exception as e:
-        logger.warning(f"[schedule_redteam] 微信通知发送失败: {e}")
+    # 尽可能从已有输出提取信息
+    partial_report = _parse_redteam_output(stdout or "")
+    partial_report["error"] = f"超时 ({timeout}s)"
+    partial_report["timed_out"] = True
 
-    return report
+    _notify_redteam_failed(f"超时 ({timeout}s)")
+    return partial_report
 
 
 def _parse_redteam_output(stdout: str) -> dict:
@@ -224,6 +227,25 @@ def _notify_redteam_failed(error_msg: str) -> dict:
         "suite_name": "红队测试",
         "error": error_msg,
     }
+
+
+def _send_redteam_notification(report: dict) -> None:
+    """发送红队测试完成通知"""
+    try:
+        from notify.wechat import send_test_complete
+        suite_name = report.get("suite_name", "红队测试")
+        send_test_complete(
+            suite_name=suite_name,
+            total=report["tests_run"],
+            passed=report["passed"],
+            failed=report["failed"],
+            pass_rate=report["pass_rate"],
+        )
+        logger.info("[schedule_redteam] 微信通知已发送")
+    except ImportError as e:
+        logger.warning(f"[schedule_redteam] notify.wechat 不可用: {e}")
+    except Exception as e:
+        logger.warning(f"[schedule_redteam] 微信通知发送失败: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════

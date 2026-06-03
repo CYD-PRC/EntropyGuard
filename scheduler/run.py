@@ -47,8 +47,8 @@ def parse_args() -> argparse.Namespace:
         help="红队测试：运行完整进化周期（默认 dry-run）",
     )
     parser.add_argument(
-        "--timeout", type=int, default=900,
-        help="redteam 子进程超时秒数（默认 900，建议 600-1800）",
+        "--timeout", type=int, default=600,
+        help="redteam 子进程超时秒数（默认 600，建议 300-1800）",
     )
     return parser.parse_args()
 
