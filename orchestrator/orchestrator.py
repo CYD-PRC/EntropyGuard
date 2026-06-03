@@ -27,6 +27,7 @@ from collections import Counter
 
 from orchestrator.task_model import AgentTask, TaskResult, OrchestratorResult
 from orchestrator.rules import route
+from notify.wechat import send_orchestrator_complete, send_retry_notification, send_env_anomaly
 
 logger = logging.getLogger("entropyruntime.orchestrator")
 
@@ -210,6 +211,17 @@ class MultiAgentOrchestrator:
                 })
         except Exception:
             pass
+
+        # [v3.9] 环境异常检测 → 微信通知
+        if state["cpu_percent"] > 90:
+            send_env_anomaly("CPU 过载", f"CPU 使用率 {state['cpu_percent']}%")
+        if state["memory_percent"] > 90:
+            send_env_anomaly("内存不足", f"内存使用率 {state['memory_percent']}%")
+        if state["disk_percent"] > 90:
+            send_env_anomaly("磁盘不足", f"磁盘使用率 {state['disk_percent']}%")
+        if len(state.get("recent_failures", [])) >= 5:
+            send_env_anomaly("连续任务失败", f"最近 {len(state['recent_failures'])} 个任务失败")
+
         return state
 
     def _get_security_state(self) -> dict:
@@ -600,6 +612,13 @@ class MultiAgentOrchestrator:
         logger.info(f"[Orchestrator v3.8] 执行完成: {len(all_tasks_flat)}个子任务, "
                     f"耗时{total_time}s, "
                     f"成功率{sum(1 for r in results if r.success)}/{len(results)}")
+
+        # [v3.9] 微信通知
+        total = len(all_tasks_flat)
+        passed = sum(1 for r in results if r.success)
+        pass_rate = f"{passed}/{total}"
+        send_orchestrator_complete(goal, orchestrator_result.success, total, total_time, pass_rate)
+
         return orchestrator_result
 
     # ----------------------------------------------------------------
@@ -1186,12 +1205,19 @@ class MultiAgentOrchestrator:
 
             result.elapsed_seconds = round(time.time() - t_start, 2)
 
-            # 非最终尝试失败 → 写 episode 记录失败原因
+            # 非最终尝试失败 → 写 episode + 微信通知
             if not result.success and attempt < 2:
                 self._write_episode(
                     result,
                     retry_count=attempt + 1,
                     retry_history=list(retry_history),
+                )
+                # [v3.9] 重试触发通知
+                send_retry_notification(
+                    task_id=task.id,
+                    agent=current_agent,
+                    retry_count=attempt + 1,
+                    error=result.error or "未知错误",
                 )
 
             # 成功 → 写 episode 并返回

@@ -184,6 +184,22 @@ def main():
 
     print_report(report)
 
+    # [v3.9] 微信通知 — 测试完成
+    try:
+        from notify.wechat import send_test_complete
+        suite_name = report.get("target_context", {}).get("name", "红队测试")
+        if not suite_name or suite_name == "general":
+            suite_name = "红队测试"
+        send_test_complete(
+            suite_name=suite_name,
+            total=report["tests_run"],
+            passed=report["passed"],
+            failed=report["failed"],
+            pass_rate=f"{report['pass_rate']}%",
+        )
+    except ImportError:
+        pass
+
     return 1 if report["failed"] > 0 else 0
 
 
