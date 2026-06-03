@@ -256,6 +256,7 @@ def _send_redteam_notification(report: dict) -> None:
 _HEALTH_WARN_MEMORY_KB = 500_000    # 500 MB RSS
 _HEALTH_WARN_EVENTS_BYTES = 5_000_000  # 5 MB events.json
 _HEALTH_CRIT_EVENTS_BYTES = 20_000_000 # 20 MB events.json
+_HEALTH_SLOW_THRESHOLD_SEC = 60        # 健康检查超过此秒数视为慢查询
 
 
 def schedule_healthcheck() -> dict:
@@ -304,6 +305,25 @@ def schedule_healthcheck() -> dict:
 
     elapsed = time.time() - t0
     logger.info(f"[schedule_healthcheck] 完成 ({elapsed:.1f}s)")
+
+    # ── 性能诊断：慢查询检测 ───────────────────────────────────────
+    if elapsed > _HEALTH_SLOW_THRESHOLD_SEC:
+        logger.warning(
+            f"[schedule_healthcheck] 健康检查耗时 {elapsed:.1f}s "
+            f"(阈值 {_HEALTH_SLOW_THRESHOLD_SEC}s)，可能服务异常"
+        )
+        _notify_health_anomaly(
+            anomaly_type="健康检查性能异常",
+            description=(
+                f"健康检查耗时 {elapsed:.1f}s，超过阈值 {_HEALTH_SLOW_THRESHOLD_SEC}s。\n\n"
+                f"可能原因：服务负载过高、磁盘 I/O 瓶颈、进程挂起。\n"
+                f"建议检查: systemctl status entropyruntime | journalctl -u entropyruntime -n 50"
+            ),
+            metrics={
+                "elapsed_seconds": f"{elapsed:.1f}",
+                "threshold_seconds": str(_HEALTH_SLOW_THRESHOLD_SEC),
+            },
+        )
 
     # ── 逐项检查 ──────────────────────────────────────────────────
     checks = {}
@@ -401,15 +421,207 @@ def _notify_health_anomaly(anomaly_type: str, description: str,
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 任务 3: Orchestrator 自审计
+# ═══════════════════════════════════════════════════════════════════
+
+_SELF_AUDIT_SCRIPT_V1 = _PROJECT_DIR / "orchestrator" / "self_audit_runner.py"
+_SELF_AUDIT_SCRIPT_V2 = _PROJECT_DIR / "orchestrator" / "self_audit_runner_v2.py"
+_SELF_AUDIT_RESULT = _PROJECT_DIR / "orchestrator" / "self-audit-result.json"
+_SELF_AUDIT_LOG = _PROJECT_DIR / "orchestrator" / "self-audit-exec.log"
+
+
+def schedule_audit(timeout: int = 300) -> dict:
+    """执行 Orchestrator 自审计并发送微信通知。
+
+    优先使用 v2（更新版本），回退到 v1。
+
+    Args:
+        timeout: 子进程超时秒数（默认 300s=5min）
+
+    Returns:
+        审计结果 dict
+    """
+    # 选择脚本版本
+    script = _SELF_AUDIT_SCRIPT_V2 if _SELF_AUDIT_SCRIPT_V2.exists() else _SELF_AUDIT_SCRIPT_V1
+    version = "v2" if script == _SELF_AUDIT_SCRIPT_V2 else "v1"
+
+    cmd = [sys.executable or "python3", str(script)]
+    logger.info(f"[schedule_audit] 启动: {' '.join(cmd)} ({version}, timeout={timeout}s)")
+    t0 = time.time()
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(_PROJECT_DIR),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except FileNotFoundError as e:
+        logger.error(f"[schedule_audit] 脚本未找到: {e}")
+        _notify_audit_failed(f"脚本未找到: {e}")
+        return {"status": "error", "error": str(e)}
+    except Exception as e:
+        logger.error(f"[schedule_audit] 启动异常: {e}")
+        _notify_audit_failed(str(e))
+        return {"status": "error", "error": str(e)}
+
+    # 轮询
+    while time.time() - t0 < timeout:
+        ret = proc.poll()
+        if ret is not None:
+            stdout, stderr = proc.communicate()
+            elapsed = time.time() - t0
+            logger.info(f"[schedule_audit] 完成 ({elapsed:.1f}s), 退出码={ret}")
+
+            result = _parse_audit_result(ret, stdout, stderr, elapsed)
+            _send_audit_notification(result)
+            return result
+
+        elapsed = time.time() - t0
+        if int(elapsed) % 60 == 0 and elapsed >= 5:
+            logger.info(f"[schedule_audit] 运行中... ({elapsed:.0f}s/{timeout}s)")
+        time.sleep(15)
+
+    # 超时
+    logger.error(f"[schedule_audit] 超时 ({timeout}s)，强制终止进程 (PID={proc.pid})")
+    proc.kill()
+    proc.communicate(timeout=5)
+    _notify_audit_failed(f"超时 ({timeout}s)")
+    return {"status": "timeout", "error": f"超时 ({timeout}s)"}
+
+
+def _parse_audit_result(retcode: int, stdout: str, stderr: str,
+                        elapsed: float) -> dict:
+    """解析自审计结果"""
+    defects = []
+    defect_count = 0
+    in_defects = False
+
+    for line in stdout.split("\n"):
+        ls = line.strip()
+        # 匹配缺陷行: [severity] category: detail
+        if ls.startswith("[ERROR]") or ls.startswith("[WARNING]") or \
+           ls.startswith("[INFO]"):
+            if ls.startswith("["):
+                defects.append(ls)
+                defect_count += 1
+                in_defects = True
+        elif ls.startswith("  [") and "]" in ls:
+            # V1 格式:  [severity] category: detail
+            defects.append(ls)
+            defect_count += 1
+        elif "缺陷" in ls and "项" in ls:
+            # "缺陷清单 (N 项)"
+            try:
+                defect_count = int(''.join(c for c in ls.split("(")[1].split(")")[0] if c.isdigit()))
+            except (IndexError, ValueError):
+                pass
+
+    # 检查结果文件
+    result_file_exists = _SELF_AUDIT_RESULT.exists()
+    if result_file_exists:
+        try:
+            with open(_SELF_AUDIT_RESULT) as f:
+                result_data = json.load(f)
+        except (json.JSONDecodeError, Exception):
+            result_data = None
+    else:
+        result_data = None
+
+    status = "ok" if retcode == 0 and defect_count == 0 else \
+             "warning" if defect_count < 10 else "critical"
+
+    return {
+        "status": status,
+        "exit_code": retcode,
+        "elapsed_seconds": round(elapsed, 1),
+        "defect_count": defect_count,
+        "defects": defects[:30],  # 最多 30 条
+        "result_file": str(_SELF_AUDIT_RESULT) if result_file_exists else None,
+        "result_data": result_data,
+        "version": "v2" if _SELF_AUDIT_SCRIPT_V2.exists() else "v1",
+    }
+
+
+def _send_audit_notification(result: dict) -> None:
+    """发送自审计完成通知"""
+    try:
+        from notify.wechat import send_notification
+
+        defect_count = result.get("defect_count", 0)
+        status = result.get("status", "unknown")
+        elapsed = result.get("elapsed_seconds", 0)
+
+        if status == "ok":
+            level = "success"
+            emoji = "✅"
+        elif status == "warning":
+            level = "warning"
+            emoji = "⚠️"
+        else:
+            level = "error"
+            emoji = "❌"
+
+        title = f"Orchestrator 自审计 {'完成' if status != 'error' else '失败'}"
+
+        content = f"""## {emoji} Orchestrator 自审计报告
+
+**版本**: {result.get('version', '?')}
+**状态**: {status.upper()}
+**耗时**: {elapsed}s
+**缺陷数**: {defect_count}
+
+"""
+        if defect_count > 0:
+            content += "**缺陷摘要**:\n"
+            for d in result.get("defects", [])[:10]:
+                content += f"- {d}\n"
+            if len(result.get("defects", [])) > 10:
+                content += f"- ... 还有 {len(result['defects']) - 10} 条\n"
+
+        if result.get("error"):
+            content += f"\n**错误**: {result['error']}\n"
+
+        content += "\n---\n*Entropy Runtime v6.0 · 自审计调度*"
+
+        send_notification(title, content, level=level)
+        logger.info("[schedule_audit] 微信通知已发送")
+    except ImportError as e:
+        logger.warning(f"[schedule_audit] notify.wechat 不可用: {e}")
+    except Exception as e:
+        logger.warning(f"[schedule_audit] 通知发送失败: {e}")
+
+
+def _notify_audit_failed(error_msg: str) -> None:
+    """自审计执行失败时发送通知"""
+    try:
+        from notify.wechat import send_notification
+        send_notification(
+            title="Orchestrator 自审计执行失败",
+            content=f"❌ schedule_audit 执行异常\n\n**错误**: {error_msg}\n\n**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            level="error",
+        )
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 独立入口
 # ═══════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     task = sys.argv[1] if len(sys.argv) > 1 else "redteam"
     if task == "redteam":
-        schedule_redteam(dry_run="--live" not in sys.argv)
+        timeout = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else 600
+        schedule_redteam(dry_run="--live" not in sys.argv, timeout=timeout)
     elif task == "health":
         schedule_healthcheck()
+    elif task == "audit":
+        timeout = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else 300
+        schedule_audit(timeout=timeout)
     else:
-        print(f"用法: python3 -m scheduler.scheduler [redteam|health]")
+        print(f"用法: python3 -m scheduler.scheduler [redteam|health|audit] [timeout]")
         sys.exit(1)

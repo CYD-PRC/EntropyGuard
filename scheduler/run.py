@@ -32,14 +32,14 @@ def parse_args() -> argparse.Namespace:
     python3 scheduler/run.py --task redteam     # 默认 dry-run 模式
     python3 scheduler/run.py --task redteam --live  # 完整进化周期
     python3 scheduler/run.py --task health      # 健康检查
-    python3 scheduler/run.py --task audit       # 系统审计（预留）
+    python3 scheduler/run.py --task audit       # Orchestrator 自审计
         """,
     )
     parser.add_argument(
         "--task", "-t",
         choices=["redteam", "health", "audit"],
         required=True,
-        help="调度任务类型",
+        help="调度任务类型（redteam=红队测试, health=健康检查, audit=自审计）",
     )
     parser.add_argument(
         "--live",
@@ -115,15 +115,33 @@ def main():
         sys.exit(0 if status == "ok" else 1)
 
     elif args.task == "audit":
-        # [预留] 系统审计 — v6.0 Part 2
-        logger.info("[audit] 系统审计任务已预留，将在 v6.0 Part 2 实现")
+        from scheduler.scheduler import schedule_audit
+        result = schedule_audit(timeout=args.timeout)
+
         print()
         print("=" * 60)
-        print("  ⏳ 系统审计任务已预留")
-        print("  将在 v6.0 Part 2 实现")
+        print("  调度器执行报告 — Orchestrator 自审计")
+        print("=" * 60)
+        status = result.get("status", "unknown")
+        status_emoji = {"ok": "✅", "warning": "⚠️", "critical": "🚨", "timeout": "⏰", "error": "❌"}.get(status, "❓")
+        print(f"  状态:       {status_emoji} {status.upper()}")
+        print(f"  耗时:       {result.get('elapsed_seconds', 0)}s")
+        print(f"  缺陷数:     {result.get('defect_count', 0)}")
+        print(f"  版本:       {result.get('version', '?')}")
+        if result.get("result_file"):
+            print(f"  结果文件:   {result['result_file']}")
+        if result.get("defects"):
+            print(f"  缺陷 ({len(result['defects'])} 条):")
+            for d in result["defects"][:10]:
+                print(f"     {d}")
+            if len(result["defects"]) > 10:
+                print(f"     ... 还有 {len(result['defects']) - 10} 条")
+        if result.get("error"):
+            print(f"  错误:       {result['error']}")
         print("=" * 60)
         print()
-        sys.exit(0)
+
+        sys.exit(0 if status == "ok" else 1)
 
 
 if __name__ == "__main__":
