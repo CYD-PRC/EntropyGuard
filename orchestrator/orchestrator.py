@@ -1093,10 +1093,13 @@ class MultiAgentOrchestrator:
             for i, ep in enumerate(similar[:3], 1):
                 c = ep.get("content", {})
                 task_id = c.get("task_id", "?")
-                output_preview = (c.get("output_preview", "") or "")[:100]
+                output_preview = ((c.get("output_preview", "") or "")[:60] + "..." if c.get("output_preview") else "无输出")
                 duration = c.get("duration", 0)
-                sim_lines.append(f"  [{i}] {task_id} | 耗时 {duration}s | 输出: {output_preview}")
+                sim_lines.append(f"  [{i}] {task_id} | 耗时 {duration}s | {output_preview}")
             sim_text = "\n".join(sim_lines)
+            # [v4.1] 截断相似任务列表：不超过 500 字符，避免 prompt 膨胀
+            if len(sim_text) > 500:
+                sim_text = sim_text[:497] + "..."
             sys_env = f"{sys_env}\n{sim_text}\n参考以上相似任务的拆解结构和路由策略（如有），但要针对当前目标做定制调整。"
 
         logger.info("[Orchestrator v4.0] 历史经验已注入到 decompose prompt")
@@ -1111,7 +1114,7 @@ class MultiAgentOrchestrator:
             if tasks:
                 logger.info(f"[Orchestrator] DeepSeek 拆解成功: {len(tasks)}个子任务")
                 return tasks
-            logger.warning("[Orchestrator] DeepSeek 响应解析失败")
+            logger.warning(f"[Orchestrator] DeepSeek 响应解析失败（返回前 300 字: {(raw or '')[:300]}）")
 
         # ── 第二层：Qwen-Max ──
         logger.info("[Orchestrator] 第二层拆解: Qwen-Max (阿里云)")
@@ -1313,12 +1316,13 @@ class MultiAgentOrchestrator:
             return None
 
         def _safety_handler():
-            # 方案1: 用 pip-audit 扫描系统所有已安装包
-            if _shutil.which("pip-audit"):
-                return ["pip-audit", "--desc", "--progress-spinner=off"]
-            # 方案2: 列出所有已安装包和版本（带 CVE 标记）
+            # 方案1: 用 pip list --outdated 快速检查
             if _shutil.which("pip"):
                 return ["pip", "list", "--format=columns", "--outdated"]
+            # 方案2: 用 pip-audit 深度扫描（慢，作为 fallback）
+            if _shutil.which("pip-audit"):
+                return ["pip-audit", "--desc", "--progress-spinner=off",
+                        "--timeout", "30"]
             return None
 
         def _curl_handler():
@@ -1654,7 +1658,7 @@ class MultiAgentOrchestrator:
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": 0.3,
-            "max_tokens": 2000,
+            "max_tokens": 4000,  # [v4.1] 增大 token 以容纳历史经验注入后的更长 prompt
             "stop": ["\n\n\n"],  # 防止 DeepSeek 输出多余尾缀
         }
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -1668,7 +1672,10 @@ class MultiAgentOrchestrator:
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 result = json.loads(resp.read().decode())
-                return result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                # [v4.1] 记录返回摘要供调试
+                logger.debug(f"[Orchestrator v4.1] DeepSeek 返回前 200 字: {content[:200]}")
+                return content
         except Exception as e:
             logger.warning(f"[Orchestrator] DeepSeek API 调用失败: {e}")
             return None
