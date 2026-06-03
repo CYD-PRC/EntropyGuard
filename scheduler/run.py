@@ -46,6 +46,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="红队测试：运行完整进化周期（默认 dry-run）",
     )
+    parser.add_argument(
+        "--timeout", type=int, default=900,
+        help="redteam 子进程超时秒数（默认 900，建议 600-1800）",
+    )
     return parser.parse_args()
 
 
@@ -66,7 +70,7 @@ def main():
 
     if args.task == "redteam":
         from scheduler.scheduler import schedule_redteam
-        report = schedule_redteam(dry_run=not args.live)
+        report = schedule_redteam(dry_run=not args.live, timeout=args.timeout)
 
         print()
         print("=" * 60)

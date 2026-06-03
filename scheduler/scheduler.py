@@ -37,11 +37,12 @@ if not logger.handlers:
 # 任务 1: 红队测试
 # ═══════════════════════════════════════════════════════════════════
 
-def schedule_redteam(dry_run: bool = True) -> dict:
+def schedule_redteam(dry_run: bool = True, timeout: int = 900) -> dict:
     """运行红队测试，解析报告，发送微信通知。
 
     Args:
         dry_run: True=只跑现有测试(默认), False=完整进化周期
+        timeout: 子进程超时秒数（默认 900s=15min，因为 34 个测试各走 LLM）
 
     Returns:
         report: 解析后的测试报告 dict，含 tests_run/passed/failed/pass_rate
@@ -51,7 +52,7 @@ def schedule_redteam(dry_run: bool = True) -> dict:
     if dry_run:
         cmd.append("--dry-run")
 
-    logger.info(f"[schedule_redteam] 启动: {' '.join(cmd)}")
+    logger.info(f"[schedule_redteam] 启动: {' '.join(cmd)} (timeout={timeout}s)")
     t0 = time.time()
 
     try:
@@ -60,11 +61,11 @@ def schedule_redteam(dry_run: bool = True) -> dict:
             cwd=project_dir,
             capture_output=True,
             text=True,
-            timeout=600,
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        logger.error("[schedule_redteam] 超时 (600s)")
-        return _notify_redteam_failed("超时 (600s)")
+        logger.error(f"[schedule_redteam] 超时 ({timeout}s)")
+        return _notify_redteam_failed(f"超时 ({timeout}s)")
     except FileNotFoundError as e:
         logger.error(f"[schedule_redteam] 脚本未找到: {e}")
         return _notify_redteam_failed(f"脚本未找到: {e}")
