@@ -123,6 +123,18 @@
   </div>
 
   <script>
+  // ====== Token 认证 ======
+  const TOKEN_KEY = 'entropy_dashboard_token';
+  let DASH_TOKEN = localStorage.getItem(TOKEN_KEY);
+  if (!DASH_TOKEN) {
+    DASH_TOKEN = prompt('请输入 Dashboard API Token（ENTROPY_RUNTIME_API_KEY）：');
+    if (DASH_TOKEN) {
+      localStorage.setItem(TOKEN_KEY, DASH_TOKEN);
+    } else {
+      alert('Token 不能为空，页面无法加载数据。');
+    }
+  }
+
   Chart.defaults.color = '#888';
   Chart.defaults.borderColor = '#2c2e33';
 
@@ -173,7 +185,9 @@
 
   async function refresh() {
     try {
-      const r = await fetch('/api/dashboard-data');
+      const r = await fetch('/api/dashboard-data', {
+        headers: { 'Authorization': 'Bearer ' + DASH_TOKEN }
+      });
       const d = await r.json();
 
       document.getElementById('last-refresh').textContent = 'Updated: ' + new Date().toLocaleTimeString();

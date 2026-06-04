@@ -1,5 +1,5 @@
 """Entropy Runtime · 目标拆解模块
-v5.0: 三层降级 DeepSeek → Qwen → 本地规则，注入历史经验和相似任务。
+v6.2: 四层降级 DeepSeek Flash → DeepSeek Pro → Qwen Max → 本地规则，注入历史经验和相似任务。
 """
 import json
 import logging
@@ -69,9 +69,61 @@ def _deepseek_api(system_prompt: str, user_prompt: str,
         return None
 
 
+def _deepseek_pro_api(system_prompt: str, user_prompt: str,
+                      timeout: int = 30) -> Optional[str]:
+    """调用 DeepSeek V4 Pro API（第二层降级，与 Flash 共享 API Key）"""
+    api_key = (os.environ.get("DEEPSEEK_API_KEY", "") or
+               os.environ.get("OPENAI_API_KEY", ""))
+    if not api_key:
+        try:
+            env_path = "/root/.env"
+            for key_name in ["DEEPSEEK_API_KEY", "OPENAI_API_KEY"]:
+                with open(env_path) as f:
+                    for line in f:
+                        ls = line.strip()
+                        if ls.startswith(key_name) and "=" in ls:
+                            api_key = ls.split("=", 1)[1]
+                            break
+                    if api_key:
+                        break
+        except (FileNotFoundError, OSError):
+            pass
+    if not api_key:
+        logger.warning("[Decompose] DeepSeek Pro API Key 未配置")
+        return None
+
+    import urllib.request
+    payload = {
+        "model": "deepseek-v4-pro",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.3,
+        "max_tokens": 4000,
+        "stop": ["\n\n\n"],
+    }
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.deepseek.com/v1/chat/completions",
+        data=body, method="POST"
+    )
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Authorization", f"Bearer {api_key}")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            result = json.loads(resp.read().decode())
+            content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            logger.debug(f"[Decompose v6.2] DeepSeek Pro 返回前 200 字: {content[:200]}")
+            return content
+    except Exception as e:
+        logger.warning(f"[Decompose] DeepSeek Pro 调用失败: {e}")
+        return None
+
+
 def _qwen_api(system_prompt: str, user_prompt: str,
               timeout: int = 30) -> Optional[str]:
-    """调用通义千问 Qwen-Max API（第二层降级）"""
+    """调用通义千问 Qwen-Max API（第三层降级）"""
     api_key = os.environ.get("QWEN_API_KEY", "")
     if not api_key:
         try:
@@ -265,8 +317,62 @@ def local_rule_decompose(goal: str) -> list[AgentTask]:
     return tasks
 
 
+# [v6.0.2] 破坏性子任务拦截器
+_DESTRUCTIVE_KEYWORDS = [
+    # 文件/目录删除
+    "rm -rf", "rm -r", "rm -f", "删除文件", "删除目录", "删除文件夹",
+    "del ", "rmdir ", "unlink ", "remove ", "清理文件", "清除文件",
+    # 格式化
+    "格式化", "format ", "mkfs.", "fdisk", "mkswap", "分区", "重新分区",
+    # 进程终止
+    "kill ", "killall", "pkill", "终止进程", "停止服务", "杀死进程",
+    # 覆盖写入
+    "> /dev/", "dd if=", ">/dev/sd", "覆写", "覆盖写入",
+    # 不可逆操作
+    "不可逆", "永久删除", "彻底删除", "清除所有",
+]
+
+
+def _validate_task_destructive(task: 'AgentTask',
+                                user_authorized: bool = False) -> bool:
+    """检查子任务是否包含破坏性操作。
+
+    Args:
+        task: 待检查的子任务
+        user_authorized: 用户是否明确授权破坏性操作
+
+    Returns:
+        True = 安全（可执行），False = 破坏性（需拦截）
+    """
+    if user_authorized:
+        return True
+
+    # 同时检查 description 和 intent
+    check_texts = [task.description.lower(), task.intent.lower()]
+    for text in check_texts:
+        for kw in _DESTRUCTIVE_KEYWORDS:
+            if kw in text:
+                task.requires_approval = True
+                logger.warning(
+                    f"[Decompose v6.0.2] 破坏性子任务拦截: "
+                    f"{task.id} 匹配关键词 '{kw}'，标记为待审批"
+                )
+                return False
+    return True
+
+
+def _filter_destructive_tasks(tasks: list['AgentTask'],
+                               user_authorized: bool = False) -> list['AgentTask']:
+    """过滤破坏性子任务：标记 requires_approval=True 而非直接删除。"""
+    filtered = []
+    for t in tasks:
+        _validate_task_destructive(t, user_authorized)
+        filtered.append(t)  # 保留全部，仅标记待审批
+    return filtered
+
+
 def decompose(goal: str) -> list[AgentTask]:
-    """将用户目标拆解为子任务列表（三层降级 + 经验注入）"""
+    """将用户目标拆解为子任务列表（四层降级 + 经验注入）"""
     system_prompt = """你是一个任务分解和依赖分析专家，负责将用户目标拆解为有序、可执行的子任务。
 
 输出格式：纯 JSON 数组，每个元素包含以下字段：
@@ -311,32 +417,51 @@ def decompose(goal: str) -> list[AgentTask]:
     logger.info("[Decompose v5.0] 历史经验已注入到 decompose prompt")
     user_prompt = f"请将以下目标拆解为有依赖关系的子任务: {goal}"
 
-    # 第一层：DeepSeek
+    # [v6.0.2] 先检查原始目标是否有明确的破坏性授权标记
+    goal_lower = goal.lower()
+    _user_authorized_destructive = any(kw in goal_lower for kw in [
+        "授权删除", "授权清理", "授权终止", "授权杀死",
+        "authorized delete", "authorized cleanup", "authorized kill",
+        "sudo rm", "cleanup authorized", "force delete",
+    ])
+
+    # 第一层：DeepSeek Flash
     logger.info("[Decompose] 第一层拆解: DeepSeek V4 Flash")
     raw = _deepseek_api(sys_env, user_prompt)
     if raw:
         tasks = parse_decompose_response(raw, goal)
         if tasks:
-            logger.info(f"[Decompose] DeepSeek 拆解成功: {len(tasks)}个子任务")
-            return tasks
-        logger.warning(f"[Decompose] DeepSeek 响应解析失败（前 300 字: {(raw or '')[:300]}）")
+            logger.info(f"[Decompose] DeepSeek Flash 拆解成功: {len(tasks)}个子任务")
+            return _filter_destructive_tasks(tasks, _user_authorized_destructive)
+        logger.warning(f"[Decompose] DeepSeek Flash 响应解析失败（前 300 字: {(raw or '')[:300]}）")
 
-    # 第二层：Qwen
-    logger.info("[Decompose] 第二层拆解: Qwen-Max")
+    # 第二层：DeepSeek Pro（降级）
+    logger.info("[Decompose] 第二层拆解: DeepSeek V4 Pro")
+    raw = _deepseek_pro_api(sys_env, user_prompt)
+    if raw:
+        tasks = parse_decompose_response(raw, goal)
+        if tasks:
+            logger.info(f"[Decompose] DeepSeek Pro 拆解成功: {len(tasks)}个子任务")
+            return _filter_destructive_tasks(tasks, _user_authorized_destructive)
+        logger.warning(f"[Decompose] DeepSeek Pro 响应解析失败（前 300 字: {(raw or '')[:300]}）")
+
+    # 第三层：Qwen
+    logger.info("[Decompose] 第三层拆解: Qwen-Max")
     raw = _qwen_api(sys_env, user_prompt)
     if raw:
         tasks = parse_decompose_response(raw, goal)
         if tasks:
             logger.info(f"[Decompose] Qwen-Max 拆解成功: {len(tasks)}个子任务")
-            return tasks
+            return _filter_destructive_tasks(tasks, _user_authorized_destructive)
 
-    # 第三层：本地规则
-    logger.info("[Decompose] 第三层拆解: 本地规则（兜底）")
+    # 第四层：本地规则
+    logger.info("[Decompose] 第四层拆解: 本地规则（兜底）")
     tasks = local_rule_decompose(goal)
     if tasks:
-        return tasks
+        return _filter_destructive_tasks(tasks, _user_authorized_destructive)
 
     # 终极兜底
     logger.warning("[Decompose] 所有层级均失败，降级为单任务模式")
-    return [AgentTask(id="task-001", description="(降级) 完整目标作为单一任务",
-                      intent=goal, priority=5, gear=DEFAULT_GEAR)]
+    single = AgentTask(id="task-001", description="(降级) 完整目标作为单一任务",
+                      intent=goal, priority=5, gear=DEFAULT_GEAR)
+    return _filter_destructive_tasks([single], _user_authorized_destructive)

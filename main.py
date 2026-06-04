@@ -24,7 +24,7 @@ if env_path.exists():
             "[Auth] ENTROPY_RUNTIME_API_KEY loaded from /root/.env"
         )
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse
 
 from config import Config
@@ -70,9 +70,23 @@ from routes.runtime_api import router as runtime_router
 from routes.agent_api import router as agent_router
 from routes.ws import setup_websocket
 
-# [v6.1] 公开 Dashboard API（无 Token 认证）
-from fastapi import APIRouter
-dashboard_router = APIRouter()
+# [v6.1] Dashboard API（需 Bearer Token 认证）
+from fastapi import APIRouter, Depends
+
+API_TOKEN = os.environ.get("ENTROPY_RUNTIME_API_KEY", "")
+
+async def verify_dashboard_token(request: Request):
+    if not API_TOKEN:
+        return True
+    auth_header = request.headers.get("Authorization", "")
+    token = ""
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+    if not token or token != API_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized: 缺失或无效 API Token。请通过 Authorization: Bearer <token> 传递。")
+    return True
+
+dashboard_router = APIRouter(dependencies=[Depends(verify_dashboard_token)])
 
 @dashboard_router.get("/api/dashboard-data")
 async def dashboard_data():
