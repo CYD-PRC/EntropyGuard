@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Entropy Runtime · Dashboard</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@latest/dist/css/tabler.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <style>
+    body { background: #15171b; }
+    .card { border: 1px solid #2c2e33; background: #1b1d22; }
+    .card-title { font-size: .85rem; color: #888; text-transform: uppercase; letter-spacing: .5px; }
+    .value-lg { font-size: 2rem; font-weight: 700; }
+    @media (max-width: 768px) { .value-lg { font-size: 1.4rem; } }
+  </style>
+</head>
+<body>
+  <div class="container-xl py-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <div>
+        <h1 class="h3 mb-0">Entropy Runtime</h1>
+        <small class="text-secondary" id="last-refresh">Loading...</small>
+      </div>
+      <div class="d-flex gap-2">
+        <span class="badge bg-dark text-secondary" id="gear-badge">Gear —</span>
+        <span class="badge bg-success" id="status-badge">● OK</span>
+      </div>
+    </div>
+
+    <!-- 6 Cards -->
+    <div class="row g-3 mb-4">
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="card p-3 text-center">
+          <div class="card-title">当前档位</div>
+          <div class="value-lg" id="current-gear">—</div>
+          <small class="text-secondary" id="gear-name"></small>
+        </div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="card p-3 text-center">
+          <div class="card-title">Sc 值</div>
+          <div class="value-lg" id="sc-value">—</div>
+          <small class="text-secondary">control entropy</small>
+        </div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="card p-3 text-center">
+          <div class="card-title">事件总数</div>
+          <div class="value-lg" id="event-count">—</div>
+          <small class="text-secondary">累计</small>
+        </div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="card p-3 text-center">
+          <div class="card-title">拦截数</div>
+          <div class="value-lg" id="blocked-count">—</div>
+          <small class="text-secondary" id="block-rate"></small>
+        </div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="card p-3 text-center">
+          <div class="card-title">红队通过率</div>
+          <div class="value-lg" id="redteam-rate">—</div>
+          <small class="text-secondary" id="redteam-detail"></small>
+        </div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="card p-3 text-center">
+          <div class="card-title">系统状态</div>
+          <div class="value-lg" id="health-status">—</div>
+          <small class="text-secondary" id="health-detail"></small>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+      <!-- Sc Timeline Chart -->
+      <div class="col-12 col-lg-6">
+        <div class="card p-3">
+          <div class="card-title mb-3">Sc 值时间线</div>
+          <canvas id="sc-chart" height="200"></canvas>
+        </div>
+      </div>
+      <!-- Red Team Donut -->
+      <div class="col-12 col-md-6 col-lg-3">
+        <div class="card p-3">
+          <div class="card-title mb-3">红队测试分布</div>
+          <canvas id="redteam-donut" height="160"></canvas>
+          <div class="text-center mt-2 text-secondary small" id="redteam-legend"></div>
+        </div>
+      </div>
+      <!-- Memory -->
+      <div class="col-12 col-md-6 col-lg-3">
+        <div class="card p-3">
+          <div class="card-title mb-3">系统记忆</div>
+          <div id="memory-list" style="max-height:200px;overflow-y:auto;font-size:.8rem;color:#999;">
+            <div class="text-secondary">via dashboard-data</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Event Table -->
+    <div class="card p-3">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="card-title mb-0">最近事件</div>
+        <span class="text-secondary small" id="refresh-count">30s</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-dark table-hover mb-0">
+          <thead><tr>
+            <th style="width:160px">时间</th>
+            <th style="width:100px">类型</th>
+            <th>描述</th>
+          </tr></thead>
+          <tbody id="event-table-body">
+            <tr><td colspan="3" class="text-secondary">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  Chart.defaults.color = '#888';
+  Chart.defaults.borderColor = '#2c2e33';
+
+  // Sc Chart
+  const scChart = new Chart(document.getElementById('sc-chart'), {
+    type: 'line',
+    data: { labels: [], datasets: [{
+      label: 'Sc',
+      data: [],
+      borderColor: '#6f9eff',
+      backgroundColor: 'rgba(111,158,255,.08)',
+      fill: true, tension: .3, pointRadius: 2,
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxTicksLimit: 8, font: { size: 10 } } },
+        y: { beginAtZero: true, grid: { color: '#2c2e33' }, font: { size: 10 } },
+      },
+    },
+  });
+
+  // Red Team Donut
+  const donutChart = new Chart(document.getElementById('redteam-donut'), {
+    type: 'doughnut',
+    data: {
+      labels: ['通过', '失败'],
+      datasets: [{ data: [0, 0], backgroundColor: ['#2fb344', '#d63939'], borderWidth: 0 }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      cutout: '70%', plugins: { legend: { display: false } },
+    },
+  });
+
+  function fmtTime(ts) {
+    if (!ts) return '';
+    try { return new Date(ts).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit', second:'2-digit' }); }
+    catch(e) { return ts; }
+  }
+
+  function eventBadge(type) {
+    const m = { GEAR_UP:'success', GEAR_DOWN:'warning', TOOL_CALL:'info', VERIFIER_BLOCK:'danger', INTENT_BLOCK:'danger', AUDIT:'secondary' };
+    const c = m[type] || 'secondary';
+    return `<span class="badge bg-${c}">${type || '—'}</span>`;
+  }
+
+  async function refresh() {
+    try {
+      const r = await fetch('/api/dashboard-data');
+      const d = await r.json();
+
+      document.getElementById('last-refresh').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+
+      // Cards
+      const gearNames = {1:'EMBRACE',2:'EXPLORE',3:'ADAPT',4:'LET_GO'};
+      const g = d.current_gear || '—';
+      document.getElementById('current-gear').textContent = g;
+      document.getElementById('gear-name').textContent = gearNames[g] || '';
+      document.getElementById('gear-badge').textContent = 'Gear ' + g;
+      document.getElementById('gear-badge').className = `badge bg-${g >= 3 ? 'warning' : g >= 2 ? 'info' : 'secondary'} text-dark`;
+
+      document.getElementById('sc-value').textContent = d.sc || '—';
+      document.getElementById('event-count').textContent = d.event_count || 0;
+      document.getElementById('blocked-count').textContent = d.blocked_count || 0;
+      document.getElementById('block-rate').textContent = d.block_rate ? d.block_rate + '%' : '';
+
+      document.getElementById('redteam-rate').textContent = d.redteam_rate ? d.redteam_rate + '%' : '—';
+      document.getElementById('redteam-detail').textContent = (d.redteam_passed || 0) + '/' + (d.redteam_total || 36);
+      donutChart.data.datasets[0].data = [d.redteam_passed || 0, (d.redteam_total || 36) - (d.redteam_passed || 0)];
+      donutChart.update('none');
+      document.getElementById('redteam-legend').textContent = (d.redteam_passed || 0) + ' passed / ' + ((d.redteam_total || 36) - (d.redteam_passed || 0)) + ' failed';
+
+      document.getElementById('health-status').textContent = d.status || '—';
+      document.getElementById('health-detail').textContent = d.uptime ? Math.floor(d.uptime/3600) + 'h uptime' : '';
+
+      // Sc timeline
+      const tl = d.sc_timeline || {};
+      scChart.data.labels = (tl.labels || []).slice(-30);
+      scChart.data.datasets[0].data = (tl.values || []).slice(-30);
+      scChart.update('none');
+
+      // Event table
+      const evts = d.events || [];
+      document.getElementById('event-table-body').innerHTML = evts.slice(-20).reverse().map(e =>
+        `<tr><td class="text-secondary small">${fmtTime(e.timestamp)}</td><td>${eventBadge(e.event_type)}</td><td class="small">${(e.action||e.description||e.message||'').slice(0,100)}</td></tr>`
+      ).join('') || '<tr><td colspan="3" class="text-secondary">No events</td></tr>';
+
+    } catch(e) {
+      document.getElementById('last-refresh').textContent = 'Error: ' + e.message;
+    }
+  }
+
+  refresh();
+  let countdown = 30;
+  setInterval(() => {
+    document.getElementById('refresh-count').textContent = (--countdown) + 's';
+    if (countdown <= 0) { countdown = 30; refresh(); }
+  }, 1000);
+  </script>
+</body>
+</html>

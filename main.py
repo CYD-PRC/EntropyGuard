@@ -70,7 +70,46 @@ from routes.runtime_api import router as runtime_router
 from routes.agent_api import router as agent_router
 from routes.ws import setup_websocket
 
-app.include_router(runtime_router)
+# [v6.1] 公开 Dashboard API（无 Token 认证）
+from fastapi import APIRouter
+dashboard_router = APIRouter()
+
+@dashboard_router.get("/api/dashboard-data")
+async def dashboard_data():
+    from audit import state
+    from config import GEAR_MAP
+    state._load_events()
+    state.compute_dynamic_sc()
+    evts = state.event_log[-50:]
+    total = len(evts)
+    blocked = sum(1 for e in evts if (e.get("event_type") or "").endswith("BLOCK") or "block" in (e.get("action") or "").lower())
+    redteam_total = 36
+    try:
+        import json as _j
+        with open("/root/EntropyGuard/security/redteam_suite.json") as _f:
+            _suite = _j.load(_f)
+        redteam_passed = sum(1 for _t in _suite if _t.get("last_result") == "passed")
+    except Exception:
+        redteam_passed = 0
+    sc_vals = [round(e.get("control_entropy", e.get("sc", 0)), 4) for e in evts if e.get("control_entropy") or e.get("sc")]
+    sc_labels = [e.get("timestamp", "") for e in evts if e.get("control_entropy") or e.get("sc")]
+    return {
+        "current_gear": state.current_gear,
+        "gear_name": GEAR_MAP.get(state.current_gear, {}).get("name", ""),
+        "sc": round(getattr(state, "control_entropy", 0), 4),
+        "event_count": total,
+        "blocked_count": blocked,
+        "block_rate": round(blocked / total * 100, 1) if total else 0,
+        "redteam_total": redteam_total,
+        "redteam_passed": redteam_passed,
+        "redteam_rate": round(redteam_passed / redteam_total * 100) if redteam_total else 0,
+        "sc_timeline": {"labels": sc_labels[-30:], "values": sc_vals[-30:]},
+        "events": evts[-20:],
+        "status": "ok",
+        "uptime": round(time.time() - getattr(state, "last_switch_time", time.time()), 1),
+    }
+
+app.include_router(dashboard_router)
 app.include_router(agent_router)
 app.include_router(mb_router)
 setup_websocket(app)
