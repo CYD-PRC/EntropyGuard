@@ -1,6 +1,19 @@
 """
 Entropy Runtime · 输出校验层
 Layer 2: 硬约束，检测 AI 输出是否超出当前档位权限
+
+[双重校验策略]
+  第一层 — 黑名单 (blocked_signals): 关键词/短语精确匹配
+    覆盖: 危险命令、执行报告模式、系统文件路径、编码后特征
+    兜底: NFKC 归一化 + 解码预处理后二次匹配
+
+  第二层 — 语义正则 (PIPE_EXEC_RE / ANTI_SANDBOX_RE):
+    PIPE_EXEC_RE:    管道执行变体，捕获 | sh/bash/zsh/python/perl 等
+    ANTI_SANDBOX_RE: 沙箱逃逸变体，捕获 chroot/unshare/nsenter 等
+    NFKC 归一化后二次匹配，确保 Unicode 全角变体也被捕获
+
+[v6.0.2] PIPE_EXEC_RE 覆盖: sh|bash|zsh|csh|ksh|dash|ash|bh|python|perl|ruby|node|nodejs|php
+[v6.1.0] ANTI_SANDBOX_RE 覆盖: /proc/self/cgroup|mount /dev|chroot|unshare|nsenter|/proc/1/root|container escape|escape container|docker --privileged
 """
 import base64
 import re
@@ -9,9 +22,30 @@ import unicodedata
 from config import Config, GEAR_MAP
 
 
+# ============================================================
+# 第二层 — 语义正则
+# ============================================================
+
 # [v6.0.2 fix] 管道执行变体正则 — 捕获 | sh, | bash, | zsh, | dash 等
 PIPE_EXEC_RE = re.compile(
-    r'\|\s*(sh|bash|zsh|csh|ksh|dash|ash|bh|python\d*|perl|ruby|node\d*|php)\b',
+    r'\|\s*(sh|bash|zsh|csh|ksh|dash|ash|bh|python\d*|perl|ruby|node\d*|nodejs|php)\b',
+    re.IGNORECASE
+)
+
+
+# [v6.1.0] 沙箱逃逸变体正则 — 检测容器逃逸类攻击
+ANTI_SANDBOX_RE = re.compile(
+    r'(?:'
+    r'/proc/self/cgroup'                    # 检测是否在容器内
+    r'|mount\s+/dev'                        # 挂载宿主机设备
+    r'|chroot\s+\S'                         # 切换根目录（逃逸）
+    r'|unshare\s+\S'                        # 取消共享命名空间
+    r'|nsenter\s+\S'                        # 进入其他命名空间
+    r'|/proc/1/root'                        # 通过 PID 1 访问宿主机
+    r'|container[-_\s]?escape\b'            # 容器逃逸显式提及
+    r'|escape[-_\s]?container\b'            # escape container
+    r'|docker\s+(run|exec|cp)\s+--privileged'   # 提权容器操作
+    r')',
     re.IGNORECASE
 )
 
@@ -19,6 +53,14 @@ PIPE_EXEC_RE = re.compile(
 def _has_pipe_exec(text: str) -> tuple[bool, str]:
     """检查文本中是否存在管道到执行器的变体"""
     m = PIPE_EXEC_RE.search(text)
+    if m:
+        return True, m.group(0).strip()
+    return False, ""
+
+
+def _has_sandbox_escape(text: str) -> tuple[bool, str]:
+    """检查文本中是否存在沙箱逃逸模式"""
+    m = ANTI_SANDBOX_RE.search(text)
     if m:
         return True, m.group(0).strip()
     return False, ""
@@ -204,6 +246,16 @@ VERIFICATION_RULES = {
             # [v6.0.2 fix] 管道执行变体 — 补全黑名单供 NFKC 二次校验捕获
             "| sh", "| bash", "| zsh", "| csh", "| ksh", "| dash", "| ash", "| bh",
             "| python", "| python2", "| python3", "| perl", "| ruby", "| node", "| nodejs", "| php",
+            # [v6.1.0] 沙箱逃逸变体 — 补全黑名单供 NFKC 二次校验捕获
+            "/proc/self/cgroup",
+            "mount /dev",
+            "chroot ",
+            "unshare ",
+            "nsenter ",
+            "/proc/1/root",
+            "container escape",
+            "escape container",
+            "docker --privileged",
         ],
         "action": "block_and_upgrade",
         "target_gear": 4,
@@ -241,12 +293,14 @@ def verify_output(reply: str, gear: int) -> dict:
     # 原始 reply 兜底
     orig_lower = reply.lower()
 
-    # [v6.0.2 fix] 正则管道执行检测 — 扫描所有文本变体
-    for _variant_name, _variant_text in [
+    # [v6.0.2 fix] 第二层 — 语义正则管道执行检测 — 扫描所有文本变体
+    _text_variants = [
         ("解码后", reply_lower),
         ("NFKC", nfkc_lower),
         ("原始", orig_lower),
-    ]:
+    ]
+    for _variant_name, _variant_text in _text_variants:
+        # PIPE_EXEC: 管道执行
         _hit, _matched = _has_pipe_exec(_variant_text)
         if _hit:
             return {
@@ -255,13 +309,32 @@ def verify_output(reply: str, gear: int) -> dict:
                 "reason": f"输出包含管道执行变体 '{_matched}'（{_variant_name}检测），超出 {rules['name']} 档位权限",
                 "target_gear": rules["target_gear"],
             }
+        # [v6.1.0] ANTI_SANDBOX: 沙箱逃逸
+        _hit2, _matched2 = _has_sandbox_escape(_variant_text)
+        if _hit2:
+            return {
+                "allowed": False,
+                "action": rules["action"],
+                "reason": f"输出包含沙箱逃逸变体 '{_matched2}'（{_variant_name}检测），超出 {rules['name']} 档位权限",
+                "target_gear": rules["target_gear"],
+            }
     for _extra in extra_check_texts:
+        # PIPE_EXEC
         _hit, _matched = _has_pipe_exec(_extra)
         if _hit:
             return {
                 "allowed": False,
                 "action": rules["action"],
                 "reason": f"输出包含管道执行变体 '{_matched}'（解码+NFKC检测），超出 {rules['name']} 档位权限",
+                "target_gear": rules["target_gear"],
+            }
+        # [v6.1.0] ANTI_SANDBOX
+        _hit2, _matched2 = _has_sandbox_escape(_extra)
+        if _hit2:
+            return {
+                "allowed": False,
+                "action": rules["action"],
+                "reason": f"输出包含沙箱逃逸变体 '{_matched2}'（解码+NFKC检测），超出 {rules['name']} 档位权限",
                 "target_gear": rules["target_gear"],
             }
 
