@@ -60,6 +60,7 @@ from memory import MemoryStore, generate_summary_text, auto_summarize_session
 
 from routes.ws import active_connections
 from orchestrator.health_score import HealthScore
+from orchestrator.priority_engine import PriorityEngine
 
 
 
@@ -148,6 +149,38 @@ async def get_state():
     }
 
 
+@router.post("/api/plan-check")
+async def plan_check(request: Request):
+    """检查任务是否可执行，根据健康度决定优先级"""
+    try:
+        data = await request.json()
+        task_description = data.get("task_description", "")
+        gear = data.get("gear", 3)
+
+        if not task_description:
+            return JSONResponse({"success": False, "error": "task_description 不能为空"}, status_code=400)
+
+        # 获取健康度
+        health = HealthScore().evaluate()
+        health_score = health["score"]
+
+        # 评估优先级
+        engine = PriorityEngine()
+        result = engine.evaluate_task(task_description, health_score)
+
+        return JSONResponse({
+            "success": True,
+            "priority": result["priority"],
+            "health_score": health_score,
+            "health_level": health.get("level", ""),
+            "reason": result["reason"],
+            "gear": gear,
+            "is_security": result.get("is_security", False),
+        })
+
+    except Exception as e:
+        logger.error(f"[POST /api/plan-check] Error: {e}")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
 @router.get("/api/events")
