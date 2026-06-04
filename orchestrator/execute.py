@@ -300,3 +300,67 @@ def merge(goal: str, tasks: list[AgentTask], results: list[TaskResult]) -> Orche
     return OrchestratorResult(
         goal=goal, tasks=tasks, results=results,
         summary=summary, success=success_count == total, total_time=0.0)
+
+
+def execute_plan(subtasks: list[AgentTask], gear: int = DEFAULT_GEAR) -> OrchestratorResult:
+    """按依赖关系顺序执行子任务列表
+
+    拓扑排序 + 逐批执行，返回聚合后的 OrchestratorResult。
+    """
+    import time
+    t0 = time.time()
+    if not subtasks:
+        return OrchestratorResult(
+            goal="(empty)", tasks=[], results=[],
+            summary="没有需要执行的子任务", success=True, total_time=0.0)
+
+    goal = subtasks[0].intent if subtasks else "(unknown)"
+    logger.info(f"[ExecutePlan] 开始执行 {len(subtasks)} 个子任务, gear={gear}")
+
+    # 构建依赖图: task_id -> set of dependency IDs
+    all_ids = {t.id for t in subtasks}
+    deps_map: dict[str, set[str]] = {}
+    for t in subtasks:
+        deps_map[t.id] = {d for d in t.dependencies if d in all_ids}
+
+    executed: dict[str, TaskResult] = {}
+    order: list[AgentTask] = []
+
+    # 拓扑排序：每次取无未完成依赖的任务
+    remaining = set(all_ids)
+    while remaining:
+        ready = [t for t in subtasks if t.id in remaining
+                 and deps_map[t.id].issubset(set(executed.keys()))]
+        if not ready:
+            # 依赖环或孤立节点 — 按优先级执行剩余任务
+            logger.warning(f"[ExecutePlan] 依赖环或孤立节点: {remaining}")
+            ready = [t for t in subtasks if t.id in remaining][:1]
+        ready.sort(key=lambda x: x.priority)  # 优先级高的先执行
+        order.extend(ready)
+        for t in ready:
+            remaining.discard(t.id)
+
+    logger.info(f"[ExecutePlan] 执行顺序: {[t.id for t in order]}")
+
+    for task in order:
+        # 检查依赖是否全部成功（非关键依赖不阻塞）
+        dep_failures = []
+        for dep_id in task.dependencies:
+            if dep_id in executed and not executed[dep_id].success:
+                dep_failures.append(dep_id)
+        if dep_failures:
+            logger.warning(
+                f"[ExecutePlan] {task.id} 的前置任务 {dep_failures} 失败，继续执行")
+            # 仍然继续，但记录警告
+
+        result = execute(task)
+        executed[task.id] = result
+        log_audit(task, result)
+        logger.info(
+            f"[ExecutePlan] {task.id}: {'✅' if result.success else '❌'} "
+            f"({result.elapsed_seconds:.1f}s)")
+
+    results = [executed[t.id] for t in subtasks]
+    merged = merge(goal, subtasks, results)
+    merged.total_time = round(time.time() - t0, 2)
+    return merged

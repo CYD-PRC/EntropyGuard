@@ -26,6 +26,7 @@ from verification import verify_output
 from memory import MemoryStore, generate_summary_text, auto_summarize_session
 from routes.ws import active_connections
 from adapters import PydanticAIAdapter
+from orchestrator.decompose import decompose
 
 logger = logging.getLogger("entropyruntime")
 
@@ -151,6 +152,119 @@ async def ai_chat(request: Request):
             "success": True,
         })
         logger.info(f"[AutoGPT] Mode enabled, message: {user_message[:50]}")
+
+    # ===== Orchestrator 路由：复杂任务走 decompose + execute_plan =====
+    COMPLEX_KEYWORDS = {"并", "然后", "之后", "同时", "多个", "并且", "以及",
+                        "分别", "逐一", "依次", "再", "先", "后", "全面",
+                        "安全检查", "审计", "审查", "分析报告", "评估"}
+    is_complex = (len(user_message) > 100 or
+                  any(kw in user_message for kw in COMPLEX_KEYWORDS))
+    if is_complex:
+        logger.info(f"[Orchestrator] 复杂任务检测触发 (len={len(user_message)}, "
+                     f"keywords matched), 准备拆解: {user_message[:80]}...")
+        state.append_event({
+            "event_type": "ORCHESTRATOR_FALLBACK",
+            "actor": actor,
+            "action": f"complex_task_routed_to_orchestrator: {user_message[:80]}",
+            "delta_entropy": 0.05,
+            "success": True,
+        })
+        try:
+            subtasks = decompose(user_message)
+            if subtasks and len(subtasks) > 0 and subtasks[0].id != "task-rejected":
+                logger.info(f"[Orchestrator] 拆解出 {len(subtasks)} 个子任务: "
+                            f"{[t.id for t in subtasks]}")
+                # 直接使用 PydanticAI Adapter 执行每个子任务（avoid HTTP callback）
+                orch_results = []
+                total_start = time.time()
+                for i, task in enumerate(subtasks):
+                    logger.info(f"[Orchestrator] 执行子任务 {i+1}/{len(subtasks)}: {task.id} — {task.description[:60]}")
+                    try:
+                        t0 = time.time()
+                        task_result = await _adapter.run(task.intent, {
+                            "model_id": task.model_id or model_id,
+                            "gear": task.gear or gear,
+                            "actor": f"orchestrator:{task.id}",
+                            "memory_context": memory_context,
+                        })
+                        elapsed = time.time() - t0
+                        orch_results.append({
+                            "task_id": task.id,
+                            "description": task.description,
+                            "success": task_result.success,
+                            "output": task_result.output,
+                            "error": task_result.error,
+                            "elapsed": round(elapsed, 2),
+                        })
+                        logger.info(f"[Orchestrator] {task.id}: {'✅' if task_result.success else '❌'} ({elapsed:.1f}s)")
+                    except Exception as e:
+                        logger.error(f"[Orchestrator] {task.id} 执行异常: {e}")
+                        orch_results.append({
+                            "task_id": task.id,
+                            "description": task.description,
+                            "success": False,
+                            "output": "",
+                            "error": str(e),
+                            "elapsed": 0.0,
+                        })
+
+                total_time = round(time.time() - total_start, 2)
+                success_count = sum(1 for r in orch_results if r["success"])
+                total_count = len(orch_results)
+
+                # 构建汇总回复
+                summary_lines = [f"Orchestrator 执行完成: {success_count}/{total_count} 子任务成功"]
+                detail_lines = []
+                for r in orch_results:
+                    s = "✅" if r["success"] else "❌"
+                    snippet = (r["output"] or r["error"] or "(空)")[:200]
+                    detail_lines.append(f"  {s} [{r['task_id']}] {snippet}")
+                reply = "\n".join(summary_lines)
+                reply += "\n\n--- 详细结果 ---\n" + "\n".join(detail_lines)
+                reply += f"\n\n⏱ 总耗时: {total_time}s | 子任务: {total_count} | 成功: {success_count}/{total_count}"
+
+                result = {
+                    "success": success_count > 0,
+                    "reply": reply,
+                    "tool_calls": None,
+                    "error": None,
+                    "orchestrator": True,
+                    "subtask_count": total_count,
+                    "total_time": total_time,
+                }
+                # 输出校验（保持原有安全层）
+                upgrade_request = None
+                verification = verify_output(reply, gear)
+                if not verification["allowed"]:
+                    _log_violation(gear, verification, reply, actor)
+                    gear_name_map = {1: "EMBRACE", 2: "EXPLORE", 3: "ADAPT", 4: "LET_GO"}
+                    result["reply"] = f"[输出校验拦截] {verification['reason']}"
+                    result["upgrade_request"] = {
+                        "target_gear": verification["target_gear"],
+                        "target_gear_name": gear_name_map.get(verification["target_gear"], "UNKNOWN"),
+                        "reason": verification["reason"],
+                        "risk_level": "medium" if verification["target_gear"] <= 3 else "high",
+                        "min_required_gear": verification["target_gear"],
+                    }
+                    result["validation_status"] = "blocked_by_verifier"
+                else:
+                    result["validation_status"] = "none"
+                    result["upgrade_request"] = None
+
+                if gear <= 2:
+                    result["confirmation_mode"] = "step_by_step"
+                elif gear == 3:
+                    result["confirmation_mode"] = "batch"
+                else:
+                    result["confirmation_mode"] = "notify_on_error"
+                return JSONResponse(result)
+            else:
+                reason = subtasks[0].description if subtasks else "拆解失败"
+                logger.warning(f"[Orchestrator] 拆解返回空/被拒绝: {reason}")
+                # 降级到 PydanticAI
+        except Exception as e:
+            logger.error(f"[Orchestrator] 拆解/执行异常: {e}", exc_info=True)
+            # 异常时降级到 PydanticAI
 
     result_obj = await _adapter.run(user_message, {
         "model_id": model_id,
