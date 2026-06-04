@@ -10,6 +10,8 @@ from typing import Optional
 from orchestrator.task_model import AgentTask
 from orchestrator.memory import build_experience_context, find_similar_episodes
 from orchestrator.env_awareness import env_system_prompt
+from orchestrator.health_score import HealthScore
+from orchestrator.priority_engine import PriorityEngine
 
 logger = logging.getLogger("entropyruntime.decompose")
 
@@ -372,7 +374,40 @@ def _filter_destructive_tasks(tasks: list['AgentTask'],
 
 
 def decompose(goal: str) -> list[AgentTask]:
-    """将用户目标拆解为子任务列表（四层降级 + 经验注入）"""
+    """将用户目标拆解为子任务列表（四层降级 + 经验注入 + 健康度对齐）"""
+
+    # [v7.0] 健康度对齐：拆解前检查任务优先级
+    try:
+        health = HealthScore().evaluate()
+        health_score = health["score"]
+        engine = PriorityEngine()
+        priority_result = engine.evaluate_task(goal, health_score)
+
+        if priority_result["priority"] == "REJECT":
+            logger.warning(
+                f"[Decompose v7.0] 健康度对齐拦截: 健康度 {health_score}, "
+                f"任务 '{goal[:60]}' 被拒绝。{priority_result['reason']}"
+            )
+            # 返回一个特殊的拒绝任务
+            return [
+                AgentTask(
+                    id="task-rejected",
+                    description=f"系统健康度不足（{health_score}分），建议先修复安全问题",
+                    intent=f"SYSTEM_REJECTED: {priority_result['reason']}",
+                    priority=10,
+                    gear=1,
+                )
+            ]
+
+        if priority_result["priority"] == "LOW":
+            logger.info(
+                f"[Decompose v7.0] 健康度较低（{health_score}分），"
+                f"任务 '{goal[:60]}' 降级为 LOW 优先级"
+            )
+
+    except Exception as e:
+        logger.warning(f"[Decompose v7.0] 健康度对齐检查失败: {e}")
+
     system_prompt = """你是一个任务分解和依赖分析专家，负责将用户目标拆解为有序、可执行的子任务。
 
 输出格式：纯 JSON 数组，每个元素包含以下字段：

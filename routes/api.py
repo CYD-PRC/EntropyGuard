@@ -601,6 +601,36 @@ async def ai_chat(request: Request):
     state.last_activity_time = time.time()
 
 
+    # [v7.0] 健康度对齐：收到新任务时检查优先级
+    if not upgrade_retry:
+        try:
+            health = HealthScore().evaluate()
+            health_score = health["score"]
+            engine = PriorityEngine()
+            priority_result = engine.evaluate_task(user_message, health_score)
+
+            if priority_result["priority"] == "REJECT":
+                logger.warning(
+                    f"[HealthGate v7.0] 健康度对齐拦截: 健康度 {health_score}, "
+                    f"任务 '{user_message[:60]}' 被拒绝。{priority_result['reason']}"
+                )
+                return JSONResponse({
+                    "success": False,
+                    "error": "system_health_too_low",
+                    "health_score": health_score,
+                    "health_level": health.get("level", ""),
+                    "suggestion": "建议先修复安全漏洞",
+                    "reason": priority_result["reason"],
+                }, status_code=503)
+
+            if priority_result["priority"] == "LOW":
+                logger.info(
+                    f"[HealthGate v7.0] 健康度较低（{health_score}），"
+                    f"任务 '{user_message[:60]}' 降级为 LOW 优先级"
+                )
+        except Exception as e:
+            logger.warning(f"[HealthGate v7.0] 健康度对齐检查失败: {e}")
+
 
     # Layer 0: 输入意图预检
 
