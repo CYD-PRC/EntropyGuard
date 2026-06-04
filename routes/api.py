@@ -59,6 +59,7 @@ from verification import verify_output
 from memory import MemoryStore, generate_summary_text, auto_summarize_session
 
 from routes.ws import active_connections
+from orchestrator.health_score import HealthScore
 
 
 
@@ -141,6 +142,9 @@ async def get_state():
         ),
 
         "confirmation_mode": "step_by_step" if state.current_gear <= 2 else ("batch" if state.current_gear == 3 else "notify_on_error"),
+
+        # v7.0: 健康度评分
+        "health_score": HealthScore().evaluate(),
     }
 
 
