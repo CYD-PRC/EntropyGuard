@@ -9,6 +9,21 @@ import unicodedata
 from config import Config, GEAR_MAP
 
 
+# [v6.0.2 fix] 管道执行变体正则 — 捕获 | sh, | bash, | zsh, | dash 等
+PIPE_EXEC_RE = re.compile(
+    r'\|\s*(sh|bash|zsh|csh|ksh|dash|ash|bh|python\d*|perl|ruby|node\d*|php)\b',
+    re.IGNORECASE
+)
+
+
+def _has_pipe_exec(text: str) -> tuple[bool, str]:
+    """检查文本中是否存在管道到执行器的变体"""
+    m = PIPE_EXEC_RE.search(text)
+    if m:
+        return True, m.group(0).strip()
+    return False, ""
+
+
 # ========== 解码预处理 (v3-alpha.1) ==========
 
 def _decode_preprocess(text: str) -> str:
@@ -37,6 +52,8 @@ def _decode_preprocess(text: str) -> str:
         r'echo\s+([A-Za-z0-9+/=]{8,})\|base64',   # echo <b64>|base64
         r'([A-Za-z0-9+/=]{8,})\s*\|base64',         # <b64> | base64
         r'base64\s+-d\s*<<<\s*[\"\']?([A-Za-z0-9+/=]+)[\"\']?',  # base64 -d <<< <b64>
+        r'base64\s+--decode\s*<<<\s*[\"\']?([A-Za-z0-9+/=]+)[\"\']?',  # base64 --decode <<< <b64>
+        r'echo\s+([A-Za-z0-9+/=]{8,})\s*\|\s*base64\s+--decode',  # echo <b64> | base64 --decode
     ]
     b64_hits = set()
     for pat in b64_patterns:
@@ -64,6 +81,8 @@ def _decode_preprocess(text: str) -> str:
     hex_patterns = [
         r"echo\s+'([0-9a-fA-F]{8,})'\s*\|\s*xxd",  # echo '<hex>' | xxd
         r'([0-9a-fA-F]{8,})\s*\|\s*xxd',             # <hex> | xxd
+        r"xxd\s+-r\s*-p\s*<<<\s*[\"\']?([0-9a-fA-F]{4,})[\"\']?",  # xxd -r -p <<< <hex>
+        r"echo\s+'([0-9a-fA-F]{8,})'\s*\|\s*xxd\s+-r\s*-p",  # echo '<hex>' | xxd -r -p
     ]
     for pat in hex_patterns:
         for m in re.finditer(pat, nfkc_text):
@@ -74,6 +93,35 @@ def _decode_preprocess(text: str) -> str:
                     decoded_parts.append(decoded)
             except Exception:
                 pass
+
+    # 3. 提取并解码 base32 字符串
+    b32_patterns = [
+        r'echo\s+([A-Z2-7=]{8,})\s*\|\s*base32\s+-d',  # echo <b32> | base32 -d
+        r'([A-Z2-7=]{8,})\s*\|\s*base32\s+-d',          # <b32> | base32 -d
+        r'echo\s+([A-Z2-7=]{8,})\s*\|\s*b32decode',      # echo <b32> | b32decode
+        r'([A-Z2-7=]{8,})\s*\|\s*b32decode',              # <b32> | b32decode
+        r'base32\s+-d\s*<<<\s*[\"\']?([A-Z2-7=]+)[\"\']?',  # base32 -d <<< <b32>
+    ]
+    b32_hits = set()
+    for pat in b32_patterns:
+        for m in re.finditer(pat, nfkc_text, re.IGNORECASE):
+            try:
+                decoded = base64.b32decode(m.group(1)).decode('utf-8', errors='replace')
+                if decoded and len(decoded) > 2:
+                    b32_hits.add(decoded)
+            except Exception:
+                pass
+
+    # 也尝试提取独立的 base32 块（长度 >= 16 且看起来像 base32）
+    for m in re.finditer(r'([A-Z2-7=]{16,})', nfkc_text):
+        try:
+            decoded = base64.b32decode(m.group(1)).decode('utf-8', errors='replace')
+            if decoded and any(c in decoded for c in (' ', '/', '.', '-', '|')):
+                b32_hits.add(decoded)
+        except Exception:
+            pass
+
+    decoded_parts.extend(b32_hits)
 
     # 返回所有内容合并，去重
     seen = set()
@@ -147,6 +195,15 @@ VERIFICATION_RULES = {
             "base64 -d",
             "/etc/shadow", "/etc/passwd",
             "/root/.ssh/", "/root/.bash_history",
+            # [v6.0.1] 补全解码后危险模式
+            "base32 -d", "base32 --decode", "b32decode",
+            "xxd -r", "xxd -p",
+            # [v6.0.1] NFKC 全角变体（base64/base32 解码后二次校验捕获）
+            "ｂａｓｅ６４ －ｄ",  # 全角 base64 -d
+            "ｂａｓｅ３２ －ｄ",  # 全角 base32 -d
+            # [v6.0.2 fix] 管道执行变体 — 补全黑名单供 NFKC 二次校验捕获
+            "| sh", "| bash", "| zsh", "| csh", "| ksh", "| dash", "| ash", "| bh",
+            "| python", "| python2", "| python3", "| perl", "| ruby", "| node", "| nodejs", "| php",
         ],
         "action": "block_and_upgrade",
         "target_gear": 4,
@@ -168,10 +225,45 @@ def verify_output(reply: str, gear: int) -> dict:
 
     # [v3-alpha.1] 先对原始 reply 做 NFKC 归一化匹配
     reply_normalized = unicodedata.normalize('NFKC', reply)
+    nfkc_lower = reply_normalized.lower()
 
     # [v2.1] 解码预处理：对 reply 进行 base64/hex/unicode 解码后也做信号匹配
     reply_decoded = _decode_preprocess(reply)
     reply_lower = reply_decoded.lower()
+
+    # [v6.0.1] 解码内容再 NFKC 归一化后二次校验（捕获编码后再用 Unicode 绕过的攻击）
+    reply_decoded_nfkc = unicodedata.normalize('NFKC', reply_decoded)
+    reply_decoded_nfkc_lower = reply_decoded_nfkc.lower()
+    extra_check_texts = []
+    if reply_decoded_nfkc_lower != reply_lower:
+        extra_check_texts.append(reply_decoded_nfkc_lower)
+
+    # 原始 reply 兜底
+    orig_lower = reply.lower()
+
+    # [v6.0.2 fix] 正则管道执行检测 — 扫描所有文本变体
+    for _variant_name, _variant_text in [
+        ("解码后", reply_lower),
+        ("NFKC", nfkc_lower),
+        ("原始", orig_lower),
+    ]:
+        _hit, _matched = _has_pipe_exec(_variant_text)
+        if _hit:
+            return {
+                "allowed": False,
+                "action": rules["action"],
+                "reason": f"输出包含管道执行变体 '{_matched}'（{_variant_name}检测），超出 {rules['name']} 档位权限",
+                "target_gear": rules["target_gear"],
+            }
+    for _extra in extra_check_texts:
+        _hit, _matched = _has_pipe_exec(_extra)
+        if _hit:
+            return {
+                "allowed": False,
+                "action": rules["action"],
+                "reason": f"输出包含管道执行变体 '{_matched}'（解码+NFKC检测），超出 {rules['name']} 档位权限",
+                "target_gear": rules["target_gear"],
+            }
 
     for signal in rules["blocked_signals"]:
         signal_lower = signal.lower()
@@ -184,7 +276,6 @@ def verify_output(reply: str, gear: int) -> dict:
             }
 
     # 也对 NFKC 归一化的 reply 做信号匹配（捕获全角 Unicode 绕过）
-    nfkc_lower = reply_normalized.lower()
     for signal in rules["blocked_signals"]:
         signal_lower = signal.lower()
         if signal_lower in nfkc_lower:
@@ -196,7 +287,6 @@ def verify_output(reply: str, gear: int) -> dict:
             }
 
     # 也对原始 reply 做信号匹配（兜底）
-    orig_lower = reply.lower()
     for signal in rules["blocked_signals"]:
         signal_lower = signal.lower()
         if signal_lower in orig_lower:
@@ -206,6 +296,18 @@ def verify_output(reply: str, gear: int) -> dict:
                 "reason": f"输出包含 '{signal}' 信号，超出 {rules['name']} 档位权限",
                 "target_gear": rules["target_gear"],
             }
+
+    # [v6.0.1] 解码内容 NFKC 归一化后再做一次信号匹配
+    for extra_text in extra_check_texts:
+        for signal in rules["blocked_signals"]:
+            signal_lower = signal.lower()
+            if signal_lower in extra_text:
+                return {
+                    "allowed": False,
+                    "action": rules["action"],
+                    "reason": f"输出包含 '{signal}' 信号（解码+NFKC检测），超出 {rules['name']} 档位权限",
+                    "target_gear": rules["target_gear"],
+                }
 
     if gear == 1 and len(reply) > Config.EMBRACE_MAX_REPLY_CHARS:
         return {

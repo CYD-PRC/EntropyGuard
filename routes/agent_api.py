@@ -184,7 +184,7 @@ async def ai_chat(request: Request):
                     cmd = args
                 else:
                     cmd = str(args)
-                allowed, reason = validate_command(cmd)
+                allowed, reason = validate_command(cmd, gear)
                 if not allowed:
                     logger.warning(f"[P1 shell guard] AI tool call blocked: {reason}")
                     result_obj = None  # allow GC

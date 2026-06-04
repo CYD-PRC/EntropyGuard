@@ -99,6 +99,26 @@ ALLOWED_COMMANDS = [
     "mkdir", "touch", "cp", "mv", "chmod", "chown", "rm",
 ]
 
+# ========== 写入操作检测 ==========
+
+def _is_write_command(command: str) -> bool:
+    """判断命令是否为写入/破坏性操作"""
+    write_signals = [
+        r"^\s*rm\s+", r"^\s*mv\s+", r"^\s*cp\s+", r"^\s*dd\s+",
+        r"^\s*>\s*", r"^\s*echo\s+.*>\s*", r"^\s*cat\s+.*>\s*",
+        r"^\s*printf\s+.*>\s*", r"^\s*truncate\s+", r"^\s*fallocate\s+",
+        r"chmod\s+", r"chown\s+", r"chattr\s+",
+        r"mkfs", r"format", r"fdisk", r"mkswap",
+        r"install\s+", r"rsync\s+",
+        r"wget\s+.*-O\s+", r"curl\s+.*-o\s+", r"curl\s+.*-O\s+",
+    ]
+    cmd_lower = command.strip().lower()
+    for pat in write_signals:
+        if re.search(pat, cmd_lower):
+            return True
+    return False
+
+
 BLOCKED_PATTERNS = [
     r"rm\s+-rf\s+/[\s;]",
     r"rm\s+-rf\s+/\s*$",
@@ -134,8 +154,9 @@ PROTECTED_PATHS = [
 ]
 
 
-def validate_command(command: str) -> Tuple[bool, str]:
-    """验证 shell 命令安全性。返回 (是否允许, 拒绝原因)"""
+def validate_command(command: str, gear: int = 1) -> Tuple[bool, str]:
+    """验证 shell 命令安全性。返回 (是否允许, 拒绝原因)
+    gear: 当前档位（默认 1=EMBRACE），gear≥2 时启用系统目录写入保护"""
     stripped = command.strip()
     if not stripped:
         return False, "空命令"
@@ -150,6 +171,14 @@ def validate_command(command: str) -> Tuple[bool, str]:
         for protected in PROTECTED_PATHS:
             if protected.lower() in cmd_lower:
                 return False, f"安全限制：禁止访问受保护路径 '{protected}'"
+
+        # [v6.0.1] gear≥2 禁止写入 /etc /root /dev /var/log /boot（仅在写入操作时触发）
+        if gear >= 2 and _is_write_command(check_text):
+            write_protected = ["/etc", "/root", "/dev", "/var/log", "/boot"]
+            for wp in write_protected:
+                # 匹配路径边界，避免误伤 /etc/hostname 等读取
+                if re.search(r'(?<!/)' + re.escape(wp) + r'(?:/|$)', cmd_lower):
+                    return False, f"安全限制：gear≥2 禁止写入系统目录 '{wp}'"
 
         # 危险正则
         for pattern in BLOCKED_REGEX:
