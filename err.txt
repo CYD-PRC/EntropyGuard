@@ -1,4 +1,0 @@
-du: cannot access '/proc/678013/task/678013/fd/3': No such file or directory
-du: cannot access '/proc/678013/task/678013/fdinfo/3': No such file or directory
-du: cannot access '/proc/678013/fd/4': No such file or directory
-du: cannot access '/proc/678013/fdinfo/4': No such file or directory
