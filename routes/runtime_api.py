@@ -598,3 +598,47 @@ async def replan_log():
         return {"status": "ok", "replan_count": len(log), "replan_log": log[-50:]}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# =============================================================================
+# Phase 5 API 端点
+# =============================================================================
+
+
+@router.get("/api/goals")
+async def get_goals():
+    try:
+        from orchestrator.goal_engine import GoalEngine
+        goals = GoalEngine().derive_goals()
+        return {"status": "ok", "goal_count": len(goals), "goals": [
+            {"id": g.id, "description": g.description, "priority": g.priority.name}
+            for g in goals]}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.get("/api/autonomous/status")
+async def autonomous_status():
+    try:
+        from orchestrator.autonomous_planner import AutonomousPlanner
+        return {"status": "ok", **AutonomousPlanner().get_status()}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.get("/api/arbitration-log")
+async def arbitration_log():
+    try:
+        from orchestrator.arbitrator import Arbitrator
+        return {"status": "ok", "arbitrations": Arbitrator().get_log()[-50:]}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.get("/api/self-defense")
+async def self_defense_status():
+    try:
+        from orchestrator.self_defense import SelfDefense
+        return {"status": "ok", **SelfDefense().get_status()}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
