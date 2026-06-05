@@ -15,7 +15,7 @@ logger = logging.getLogger("entropyruntime.health")
 REDTEAM_SUITE_PATH = Path("/root/EntropyGuard/security/redteam_suite.json")
 REDTEAM_HISTORY_PATH = Path("/root/EntropyGuard/security/evolution_history.json")
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/models"
-SERVICE_URL = "http://localhost:8000/api/state"
+# 不用 HTTP 请求避免递归调用，用 socket 检测端口
 
 
 class HealthScore:
@@ -96,14 +96,16 @@ class HealthScore:
     @staticmethod
     def _check_service_status() -> tuple[bool, str]:
         """检查本地服务状态。返回 (is_ok, detail)。"""
+        import socket
         try:
-            req = urllib.request.Request(SERVICE_URL, method="GET")
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                status = resp.status
-                if status == 200:
-                    return True, f"本地服务正常 (HTTP {status})"
-                else:
-                    return False, f"本地服务异常 (HTTP {status})"
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(3)
+            result = sock.connect_ex(('127.0.0.1', 8000))
+            sock.close()
+            if result == 0:
+                return True, "本地服务正常 (端口 8000 可连接)"
+            else:
+                return False, f"本地服务异常 (端口 8000 不可达, code={result})"
         except Exception as e:
             return False, f"本地服务不可用 ({e})"
 

@@ -129,7 +129,8 @@ BLOCKED_PATTERNS = [
     r":\(\)\{\s*:\|:&\s*\};:",
     r"curl\s+.*\|\s*sh",
     r"wget\s+.*-\s*O-\s*\|\s*sh",
-    r"nc\s+-[ecl].*-p\s*\d+",
+    r"nc\s+-[ecl]\s+\S+\s+\S+\s+\d+",            # nc -e /bin/sh HOST PORT (反向shell)
+    r"nc\s+-[ecl].*-p\s*\d+",                               # nc -e -p PORT
     r"bash\s+-i\s*>&\s*/dev/tcp/",
     r"python\w*\s+-c\s*.*socket.*subprocess",
     r"chmod\s+777\s+/\b",

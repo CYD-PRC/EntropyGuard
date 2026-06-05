@@ -1748,6 +1748,84 @@ async def health_check(request: Request):
 
 
 # =============================================================================
+# 宇宙透镜优先级检查 API
+# =============================================================================
+
+@router.get("/api/priority-check")
+async def priority_check():
+    """查询当前宇宙透镜优先级状态。
+
+    返回当前系统各价值层级的配置和状态快照，
+    供前端 Dashboard 渲染优先级看板。
+    """
+    try:
+        from orchestrator.cosmic_lense import CosmicLense
+        lense = CosmicLense()
+        state = lense._get_system_state()
+
+        return {
+            "status": "ok",
+            "current_state": state,
+            "value_tiers": {
+                "survival": {"name": "生存级", "order": 1, "priority_score_range": "1-25"},
+                "evolution": {"name": "进化级", "order": 2, "priority_score_range": "26-50"},
+                "harmony": {"name": "和谐级", "order": 3, "priority_score_range": "51-75"},
+                "expression": {"name": "表达级", "order": 4, "priority_score_range": "76-100"},
+            },
+            "active_overrides": [],
+        }
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# =============================================================================
+# 元认知自省检查 API
+# =============================================================================
+
+@router.get("/api/metacognition")
+async def metacognition_check():
+    """返回最近的元认知自检记录。
+
+    供 Dashboard 渲染红旗/卡死/偏离检测结果。
+    """
+    try:
+        from orchestrator.metacognition import Metacognition
+        meta = Metacognition()
+        history = meta.check_history
+        return {
+            "status": "ok",
+            "check_count": len(history),
+            "recent_checks": history[-20:],
+            "detectors": {
+                "red_flag": True,
+                "stall_detector": True,
+                "drift_calculator": True,
+            },
+        }
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# =============================================================================
+# 重规划日志查询 API
+# =============================================================================
+
+@router.get("/api/replan-log")
+async def replan_log():
+    """查询最近的重规划历史记录。"""
+    try:
+        from orchestrator.replanner import Replanner
+        rp = Replanner()
+        log = rp.get_log()
+        return {"status": "ok", "replan_count": len(log), "replan_log": log[-50:]}
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# =============================================================================
 # 工具调用拦截 API（四档确认体系）
 # =============================================================================
 import uuid

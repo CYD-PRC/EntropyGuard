@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from config import Config, GEAR_MAP
+from orchestrator.health_score import HealthScore
 from audit import state
 from tools import GEAR_TOOLS
 from models import MODEL_REGISTRY, gear_aware_call, parse_upgrade_request
@@ -70,6 +71,7 @@ async def get_state():
         ),
         "confirmation_mode": "step_by_step" if state.current_gear <= 2
         else ("batch" if state.current_gear == 3 else "notify_on_error"),
+        "health_score": HealthScore().evaluate(),
     }
 
 
@@ -510,5 +512,89 @@ async def health_check(request: Request):
         return JSONResponse({"error": "healthcheck script not found"}, status_code=500)
     except subprocess.TimeoutExpired:
         return JSONResponse({"error": "healthcheck timed out"}, status_code=500)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/plan-check")
+async def plan_check(request: Request):
+    """检查新任务优先级是否与当前系统健康度对齐。"""
+    try:
+        body = await request.json()
+        task_description = body.get("task_description", "")
+        gear = body.get("gear", 1)
+
+        health = HealthScore().evaluate()
+        health_score = health["score"]
+
+        from orchestrator.priority_engine import PriorityEngine
+        engine = PriorityEngine()
+        result = engine.evaluate_task(task_description, health_score)
+
+        return {
+            "health_score": health_score,
+            "health_level": health["level"],
+            "priority": result.get("priority", "UNKNOWN"),
+            "action": result.get("action", "allow"),
+            "reason": result.get("reason", ""),
+        }
+    except Exception as e:
+        logger.error(f"[POST /api/plan-check] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# 宇宙透镜优先级检查 API (Phase 3.1)
+# =============================================================================
+
+@router.get("/api/priority-check")
+async def priority_check():
+    """查询当前宇宙透镜优先级状态。"""
+    try:
+        from orchestrator.cosmic_lense import CosmicLense
+        lense = CosmicLense()
+        state = lense._get_system_state()
+        return {
+            "status": "ok",
+            "current_state": state,
+            "value_tiers": {
+                "survival": {"name": "生存级", "order": 1, "priority_score_range": "1-25"},
+                "evolution": {"name": "进化级", "order": 2, "priority_score_range": "26-50"},
+                "harmony": {"name": "和谐级", "order": 3, "priority_score_range": "51-75"},
+                "expression": {"name": "表达级", "order": 4, "priority_score_range": "76-100"},
+            },
+        }
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# =============================================================================
+# 元认知自省检查 API (Phase 3.2)
+# =============================================================================
+
+@router.get("/api/metacognition")
+async def metacognition_check():
+    """返回最近的元认知自检记录。"""
+    try:
+        from orchestrator.metacognition import Metacognition
+        meta = Metacognition()
+        history = meta.check_history
+        return {"status": "ok", "check_count": len(history), "recent_checks": history[-20:]}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# =============================================================================
+# 重规划日志查询 API (Phase 3.4)
+# =============================================================================
+
+@router.get("/api/replan-log")
+async def replan_log():
+    """查询最近的重规划历史记录。"""
+    try:
+        from orchestrator.replanner import Replanner
+        rp = Replanner()
+        log = rp.get_log()
+        return {"status": "ok", "replan_count": len(log), "replan_log": log[-50:]}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)

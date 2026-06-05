@@ -126,6 +126,7 @@ async def dashboard_data():
 app.include_router(dashboard_router)
 app.include_router(agent_router)
 app.include_router(mb_router)
+app.include_router(runtime_router)
 setup_websocket(app)
 setup_messageboard_ws(app)
 

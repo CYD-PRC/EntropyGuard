@@ -14,6 +14,19 @@ from typing import Optional
 from orchestrator.task_model import AgentTask, TaskResult, OrchestratorResult
 from orchestrator.memory import write_episode
 from notify.wechat import send_retry_notification
+from orchestrator.dataflow import (
+    augment_dependencies, inject_dataflow_into_context,
+)
+from orchestrator.checkpoint import (
+    save_checkpoint, load_checkpoint, clear_checkpoint,
+)
+from orchestrator.planner import build_context
+from orchestrator.cosmic_lense import CosmicLense, ValueTier
+from orchestrator.metacognition import Metacognition, CheckStatus, Suggestion
+from orchestrator.memory_store import MemoryStore
+from orchestrator.replanner import Replanner, ReplanAction
+
+memory_store = MemoryStore()
 
 logger = logging.getLogger("entropyruntime.execute")
 
@@ -231,6 +244,11 @@ def execute(task: AgentTask) -> TaskResult:
                           error=result.error or "未知错误",
                           retry_count=attempt + 1, retry_history=list(retry_history),
                           source=f"orchestrator:{current_agent}")
+            memory_store.save_episode(
+                task_id=result.task_id, agent=current_agent,
+                intent=task.intent, output=result.error or "",
+                success=False, duration=result.elapsed_seconds,
+            )
             send_retry_notification(
                 task_id=task.id, agent=current_agent,
                 retry_count=attempt + 1, error=result.error or "未知错误")
@@ -241,6 +259,11 @@ def execute(task: AgentTask) -> TaskResult:
                           duration=result.elapsed_seconds,
                           retry_count=attempt, retry_history=list(retry_history),
                           source=f"orchestrator:{current_agent}")
+            memory_store.save_episode(
+                task_id=result.task_id, agent=current_agent,
+                intent=task.intent, output=(result.output or "")[:500],
+                success=True, duration=result.elapsed_seconds,
+            )
             return result
 
     # 3 次全部失败
@@ -249,6 +272,11 @@ def execute(task: AgentTask) -> TaskResult:
                   duration=result.elapsed_seconds, error=result.error or "所有 Agent 均失败",
                   retry_count=3, retry_history=list(retry_history),
                   source=f"orchestrator:{result.agent or 'unknown'}")
+    memory_store.save_episode(
+        task_id=result.task_id, agent=result.agent or "unknown",
+        intent=task.intent, output=result.error or "所有 Agent 均失败",
+        success=False, duration=result.elapsed_seconds,
+    )
     return result
 
 
@@ -302,48 +330,142 @@ def merge(goal: str, tasks: list[AgentTask], results: list[TaskResult]) -> Orche
         summary=summary, success=success_count == total, total_time=0.0)
 
 
-def execute_plan(subtasks: list[AgentTask], gear: int = DEFAULT_GEAR) -> OrchestratorResult:
+def execute_plan(subtasks: list[AgentTask], gear: int = DEFAULT_GEAR,
+                 task_id: str = "",
+                 goal: str = "") -> OrchestratorResult:
     """按依赖关系顺序执行子任务列表
+
+    增强功能 v7.2:
+      - 声明式数据流: 自动解析 dataflow 依赖，注入上游输出到下游 context
+      - 断点续跑: 每个子任务执行后写 checkpoint，进程重启跳过已完成任务
+
+    Args:
+        subtasks: 子任务列表
+        gear: 默认档位
+        task_id: 执行计划 ID（用于 checkpoint，留空自动生成）
+        goal: 原始目标描述（用于 checkpoint，留空使用第一个任务的 intent）
 
     拓扑排序 + 逐批执行，返回聚合后的 OrchestratorResult。
     """
     import time
+    import uuid
     t0 = time.time()
     if not subtasks:
         return OrchestratorResult(
-            goal="(empty)", tasks=[], results=[],
+            goal=goal or "(empty)", tasks=[], results=[],
             summary="没有需要执行的子任务", success=True, total_time=0.0)
 
-    goal = subtasks[0].intent if subtasks else "(unknown)"
-    logger.info(f"[ExecutePlan] 开始执行 {len(subtasks)} 个子任务, gear={gear}")
+    goal_text = goal or subtasks[0].intent
+    plan_id = task_id or f"plan-{uuid.uuid4().hex[:8]}"
+    logger.info(
+        f"[ExecutePlan v7.2] 开始执行 {len(subtasks)} 个子任务, "
+        f"gear={gear}, plan_id={plan_id}")
 
-    # 构建依赖图: task_id -> set of dependency IDs
+    # --- v7.2: 自动注入 dataflow 依赖 ---
+    subtasks = augment_dependencies(subtasks)
+
+    # --- v7.2 Phase 3.1: 宇宙透镜优先级评估 ---
+    try:
+        lense = CosmicLense()
+        prioritized = []
+        for task in subtasks:
+            result = lense.evaluate(task)
+            # 宇宙透镜判定结果记录到日志
+            logger.info(
+                f"[CosmicLense] {task.id}: {result.tier_name_cn}级 "
+                f"(score={result.priority_score})"
+                f"{' [覆盖]' if result.overridden else ''}"
+                f" | {result.reason[:80]}"
+            )
+            # 如果宇宙优先级高于子任务指定的优先级，覆盖
+            if result.overridden and result.original_tier:
+                logger.warning(
+                    f"[CosmicLense] {task.id}: 优先级被宇宙透镜覆盖: "
+                    f"{result.original_tier}→{result.tier}"
+                )
+            # 将宇宙透镜结果注入 task payload 供后续使用
+            task.payload["cosmic_lense"] = {
+                "tier": result.tier_name_cn,
+                "priority_score": result.priority_score,
+                "reason": result.reason,
+                "overridden": result.overridden,
+            }
+            prioritized.append(task)
+
+        # 按宇宙透镜优先级重新排序子任务
+        prioritized.sort(
+            key=lambda t: (
+                t.payload.get("cosmic_lense", {}).get("priority_score", 50),
+                t.priority,
+            )
+        )
+        subtasks = prioritized
+        logger.info(
+            f"[CosmicLense] 优先级排序完成: "
+            f"{[(t.id, t.payload.get('cosmic_lense',{}).get('tier','?')) for t in subtasks]}"
+        )
+    except Exception as e:
+        logger.warning(f"[CosmicLense] 评估失败（不影响执行）: {e}")
+
     all_ids = {t.id for t in subtasks}
-    deps_map: dict[str, set[str]] = {}
-    for t in subtasks:
-        deps_map[t.id] = {d for d in t.dependencies if d in all_ids}
 
-    executed: dict[str, TaskResult] = {}
-    order: list[AgentTask] = []
+    # --- v7.2: 尝试恢复 checkpoint ---
+    ckpt_data = load_checkpoint(plan_id, subtasks)
+    if ckpt_data:
+        logger.info(f"[ExecutePlan v7.2] 检测到 checkpoint，恢复执行")
+        completed_pairs: list[tuple[AgentTask, TaskResult]] = ckpt_data["completed"]
+        remaining_tasks: list[AgentTask] = ckpt_data["remaining"]
+        task_output_map: dict[str, str] = ckpt_data["task_output_map"]
+        executed: dict[str, TaskResult] = {r.task_id: r for _, r in completed_pairs}
+        # 重建 remaining 集合
+        remaining_set = {t.id for t in remaining_tasks}
+        # 构建 order: 已完成的按原始顺序
+        all_ordered = [t for t in subtasks if t.id not in remaining_set] + remaining_tasks
+        order = all_ordered
+        logger.info(
+            f"[Checkpoint] 跳过 {len(completed_pairs)} 个已完成任务, "
+            f"继续执行 {len(remaining_tasks)} 个")
+    else:
+        # --- 无 checkpoint，从头执行 ---
+        executed: dict[str, TaskResult] = {}
+        task_output_map: dict[str, str] = {}
+        order: list[AgentTask] = []
 
-    # 拓扑排序：每次取无未完成依赖的任务
-    remaining = set(all_ids)
-    while remaining:
-        ready = [t for t in subtasks if t.id in remaining
-                 and deps_map[t.id].issubset(set(executed.keys()))]
-        if not ready:
-            # 依赖环或孤立节点 — 按优先级执行剩余任务
-            logger.warning(f"[ExecutePlan] 依赖环或孤立节点: {remaining}")
-            ready = [t for t in subtasks if t.id in remaining][:1]
-        ready.sort(key=lambda x: x.priority)  # 优先级高的先执行
-        order.extend(ready)
-        for t in ready:
-            remaining.discard(t.id)
+        deps_map: dict[str, set[str]] = {}
+        for t in subtasks:
+            deps_map[t.id] = {d for d in t.dependencies if d in all_ids}
+
+        remaining_set = set(all_ids)
+        while remaining_set:
+            ready = [t for t in subtasks if t.id in remaining_set
+                     and deps_map[t.id].issubset(set(executed.keys()))]
+            if not ready:
+                logger.warning(f"[ExecutePlan] 依赖环或孤立节点: {remaining_set}")
+                ready = [t for t in subtasks if t.id in remaining_set][:1]
+            ready.sort(key=lambda x: x.priority)
+            order.extend(ready)
+            for t in ready:
+                remaining_set.discard(t.id)
 
     logger.info(f"[ExecutePlan] 执行顺序: {[t.id for t in order]}")
 
-    for task in order:
-        # 检查依赖是否全部成功（非关键依赖不阻塞）
+    # --- 执行循环 ---
+    completed_tasks_list: list[AgentTask] = []
+    completed_results_list: list[TaskResult] = []
+
+    # --- v7.2 Phase 3.2: 元认知自省引擎 ---
+    meta = Metacognition()
+    # --- v7.2 Phase 3.4: 动态重规划引擎 ---
+    replanner = Replanner()
+
+    for i, task in enumerate(order):
+        # 已完成的跳过
+        if task.id in executed:
+            completed_tasks_list.append(task)
+            completed_results_list.append(executed[task.id])
+            continue
+
+        # 检查依赖失败
         dep_failures = []
         for dep_id in task.dependencies:
             if dep_id in executed and not executed[dep_id].success:
@@ -351,16 +473,120 @@ def execute_plan(subtasks: list[AgentTask], gear: int = DEFAULT_GEAR) -> Orchest
         if dep_failures:
             logger.warning(
                 f"[ExecutePlan] {task.id} 的前置任务 {dep_failures} 失败，继续执行")
-            # 仍然继续，但记录警告
+
+        # --- v7.2: 注入数据流上下文 ---
+        if task_output_map:
+            existing_context = build_context(task, task_output_map)
+            enriched_context = inject_dataflow_into_context(
+                task, existing_context, task_output_map)
+            if enriched_context != existing_context:
+                logger.info(
+                    f"[Dataflow] {task.id}: 注入数据流上下文 "
+                    f"({len(enriched_context)} chars)")
+                # 将注入的上下文附加到任务 intent 中
+                task.intent = task.intent + "\n\n[数据流注入]\n" + enriched_context
 
         result = execute(task)
         executed[task.id] = result
+        completed_tasks_list.append(task)
+        completed_results_list.append(result)
+        task_output_map[task.id] = result.output or ""
         log_audit(task, result)
         logger.info(
             f"[ExecutePlan] {task.id}: {'✅' if result.success else '❌'} "
             f"({result.elapsed_seconds:.1f}s)")
 
+        # --- v7.2 Phase 3.4: 失败重规划 ---
+        if not result.success:
+            try:
+                remaining_for_replan = [
+                    t for t in order[i + 1:] if t.id not in executed
+                ]
+                plan = replanner.replan_on_failure(
+                    failed_task=task, result=result,
+                    remaining_tasks=remaining_for_replan,
+                    task_output_map=task_output_map,
+                    all_tasks=[t for t in subtasks if t.id not in executed],
+                )
+                if plan.has_changes() or plan.action != ReplanAction.CONTINUE:
+                    logger.warning(
+                        f"[Replanner] {task.id}: {plan.action.value}"
+                        f" — {plan.reason}"
+                    )
+                    replanner.save_replan_to_memory(plan, task.id)
+                    if plan.escalated:
+                        logger.error(
+                            f"[Replanner] {task.id}: 需要人工介入: {plan.reason}"
+                        )
+            except Exception as replan_err:
+                logger.warning(
+                    f"[Replanner] 重规划异常（不影响执行）: {replan_err}"
+                )
+
+        # --- v7.2: 写 checkpoint ---
+        remaining_tasks_ckpt = [
+            t for t in order[i + 1:] if t.id not in executed
+        ]
+        save_checkpoint(
+            plan_id, goal_text,
+            completed_tasks_list, completed_results_list,
+            remaining_tasks_ckpt, task_output_map,
+        )
+
+        # --- v7.2 Phase 3.2: 元认知自省 ---
+        try:
+            cr = meta.self_check(
+                task=task,
+                result=result,
+                retry_history=[],
+                expected_timeout=120,
+            )
+            # 将元认知结果注入 task payload
+            task.payload["metacognition"] = {
+                "status": cr.status.value,
+                "drift_score": cr.drift_score,
+                "suggestion": cr.suggestion.value,
+                "flags": [{"type": f.flag_type, "severity": f.severity}
+                          for f in cr.flags],
+            }
+
+            if cr.status == CheckStatus.CRITICAL:
+                logger.warning(
+                    f"[Metacognition] {task.id}: CRITICAL — {cr.summary}"
+                    f" | 建议: {cr.suggestion.value}"
+                )
+                # 元认知 CRITICAL → 调用重规划
+                try:
+                    drift_plan = replanner.replan_on_drift(
+                        task=task, check_result=cr,
+                        remaining_tasks=[t for t in order[i + 1:] if t.id not in executed],
+                        all_tasks=[t for t in subtasks if t.id not in executed],
+                    )
+                    if drift_plan.has_changes():
+                        logger.warning(
+                            f"[Replanner] drift → {drift_plan.action.value}: {drift_plan.reason}"
+                        )
+                        replanner.save_replan_to_memory(drift_plan, task.id)
+                except Exception as drift_err:
+                    logger.warning(f"[Replanner] drift 异常: {drift_err}")
+                # 宇宙透镜联动：元认知 CRITICAL → 后续任务自动提级
+                if cr.suggestion in (Suggestion.ABORT, Suggestion.ESCALATE):
+                    logger.error(
+                        f"[Metacognition] {task.id}: 建议{cr.suggestion.value}，"
+                        f"当前策略: 继续执行但记录告警"
+                    )
+            elif cr.status == CheckStatus.WARNING:
+                logger.info(
+                    f"[Metacognition] {task.id}: WARNING — {cr.summary}"
+                )
+        except Exception as meta_err:
+            logger.warning(f"[Metacognition] 自检异常（不影响执行）: {meta_err}")
+
+    # 任务全部完成，清除 checkpoint
+    clear_checkpoint(plan_id)
+
+    # 按原始 subtasks 顺序整理结果
     results = [executed[t.id] for t in subtasks]
-    merged = merge(goal, subtasks, results)
+    merged = merge(goal_text, subtasks, results)
     merged.total_time = round(time.time() - t0, 2)
     return merged
