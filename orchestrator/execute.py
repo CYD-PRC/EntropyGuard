@@ -30,7 +30,7 @@ memory_store = MemoryStore()
 
 logger = logging.getLogger("entropyruntime.execute")
 
-ENTROPY_API_BASE = "http://127.0.0.1:8000"
+ENTROPY_API_BASE = "http://127.0.0.1:5000"
 DEFAULT_MODEL = "kimi"
 DEFAULT_GEAR = 3
 
@@ -67,6 +67,10 @@ def _api_request(endpoint: str, payload: dict, timeout: int = 120) -> dict:
         return {"success": False, "error": f"HTTP {e.code}: {body_text}"}
     except urllib.error.URLError as e:
         logger.error(f"[Execute] URL error on {endpoint}: {e.reason}")
+        # Connection refused → 立即返回，不要浪费时间重试
+        err_str = str(e.reason)
+        if "refused" in err_str or "connect" in err_str:
+            return {"success": False, "error": f"Agent 不可达: {e.reason}"}
         return {"success": False, "error": str(e.reason)}
     except Exception as e:
         logger.error(f"[Execute] Request error on {endpoint}: {e}")
@@ -193,7 +197,6 @@ def execute(task: AgentTask) -> TaskResult:
     retry_agents = [
         task.assigned_agent or "hermes",
         "hermes",
-        "autogpt",
     ]
     retry_delays = [0, 2, 5]
     retry_history: list[dict] = []
@@ -201,7 +204,7 @@ def execute(task: AgentTask) -> TaskResult:
     result: Optional[TaskResult] = None
 
     for attempt in range(3):
-        current_agent = retry_agents[attempt]
+        current_agent = retry_agents[attempt] if attempt < len(retry_agents) else "hermes"
         delay = retry_delays[attempt]
         if attempt > 0:
             logger.info(f"[Execute v5.0] {task.id}: 第{attempt+1}次重试, 等待{delay}s, Agent: {current_agent}")
