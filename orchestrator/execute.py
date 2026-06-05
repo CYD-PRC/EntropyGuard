@@ -169,17 +169,36 @@ def execute_tool(task: AgentTask, tool: ToolType) -> TaskResult:
         return execute_hermes(task)  # 兜底：directory scan
 
 
+def _get_deepseek_api_key() -> str:
+    """从 /root/.env 或环境变量读取 DeepSeek API Key"""
+    for key_name in ["DEEPSEEK_API_KEY", "OPENAI_API_KEY"]:
+        # 先查环境变量
+        val = os.environ.get(key_name, "")
+        if val:
+            return val
+        # 再查 /root/.env
+        try:
+            with open("/root/.env") as f:
+                for line in f:
+                    ls = line.strip()
+                    if ls.startswith(key_name) and "=" in ls:
+                        return ls.split("=", 1)[1]
+        except (FileNotFoundError, OSError):
+            pass
+    return ""
+
+
 def _execute_pydanticai_as_tool(task: AgentTask) -> TaskResult:
     """pydanticai 作为 Hermes 的结构化提取工具。"""
     try:
-        # 通过 DeepSeek API 进行结构化提取（pydanticai 原本的能力）
-        api_key = _get_api_key() or os.environ.get("DEEPSEEK_API_KEY", "")
+        api_key = _get_deepseek_api_key()
         if not api_key:
-            # 降级为纯文本分析
             return _execute_file_analysis(task)
 
+        # 从 config 或 /root/.env 读取模型名
+        model = "deepseek-v4-flash"
         payload = {
-            "model": "deepseek-v4-flash",
+            "model": model,
             "messages": [
                 {"role": "system", "content": "你是一个结构化数据提取助手。请分析用户输入，提取关键信息，以JSON格式输出。"},
                 {"role": "user", "content": task.intent},
