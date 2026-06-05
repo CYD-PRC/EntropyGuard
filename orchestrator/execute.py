@@ -96,7 +96,7 @@ def _api_request(endpoint: str, payload: dict, timeout: int = 120) -> dict:
 _DESTRUCTIVE_SHELL_PATTERNS = [
     "rm -rf", "rm -r /", "rm -f /", "mkfs.", "dd if=", "> /dev/sd",
     "format ", "fdisk", "mkswap", "halt", "reboot", "shutdown",
-    "poweroff", "init 0", "init 6",
+    "poweroff", "init 0", "init 6", "格式化",
 ]
 _BLOCKED_COMMANDS = [
     "sudo", "su ", "chmod 777", "chown", "passwd",

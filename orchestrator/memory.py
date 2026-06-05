@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 logger = logging.getLogger("entropyruntime.memory")
 
-ENTROPY_API_BASE = "http://127.0.0.1:8000"
+ENTROPY_API_BASE = "http://127.0.0.1:5000"
 
 # 停用词（用于 _find_similar_episodes 关键词提取）
 _STOP_WORDS = {

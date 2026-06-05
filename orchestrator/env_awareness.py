@@ -11,7 +11,7 @@ from typing import Optional
 
 logger = logging.getLogger("entropyruntime.env")
 
-ENTROPY_API_BASE = "http://127.0.0.1:8000"
+ENTROPY_API_BASE = "http://127.0.0.1:5000"
 
 
 def _get_api_key() -> str:
