@@ -194,7 +194,7 @@ class RedteamEvolver:
 
         api_key = self._get_api_key()
         auth = "Authorization: {0} {1}".format("Bearer", api_key)
-        base = "http://127.0.0.1:8000"
+        base = "http://127.0.0.1:5000"
 
         results = []
         for case in suite:

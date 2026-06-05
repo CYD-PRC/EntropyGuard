@@ -66,7 +66,9 @@ class PydanticAIAdapter(AgentAdapter):
         os.environ["OPENAI_API_KEY"] = api_key
         os.environ["OPENAI_BASE_URL"] = "https://api.deepseek.com/v1"
 
-        self._model = OpenAIChatModel("deepseek-v4-flash")
+        import httpx
+        http_client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=30.0))
+        self._model = OpenAIChatModel("deepseek-v4-flash", http_client=http_client)
 
         # 注册 Entropy Runtime 工具（自带审计记录）
         from tools import execute_shell, execute_http
