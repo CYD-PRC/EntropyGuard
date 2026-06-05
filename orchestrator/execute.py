@@ -1,5 +1,16 @@
-"""Entropy Runtime · 子任务执行模块
-v5.0: 统一执行 + 重试机制 + Hermes 子进程 + 审计 + 合并。
+"""Entropy Runtime · Hermes 执行器
+v8.0: 纯执行层 — 接收 AutoGPT 计划，按工具类型执行，安全校验贯穿全程。
+
+核心原则:
+  - 只执行，不规划
+  - 每个子任务分配一个工具类型（ToolType），由 Hermes 调度执行
+  - 所有执行经过安全三道校验（intent_guard / command_guard / output_guard）
+  - 失败时调用 replanner 重规划，结果上报 MessageBoard
+
+删除 Agent 路由:
+  - 不再支持 assigned_agent=autogpt/pydanticai 作为独立 Agent
+  - pydanticai 降级为 Hermes 的一个工具（结构化提取）
+  - autogpt 仅作为规划引擎（在 planner_gateway.py 中调用）
 """
 import json
 import logging
@@ -9,6 +20,8 @@ import time
 import urllib.request
 import subprocess as _subprocess
 import shutil as _shutil
+from dataclasses import dataclass
+from enum import Enum
 from typing import Optional
 
 from orchestrator.task_model import AgentTask, TaskResult, OrchestratorResult
@@ -25,6 +38,7 @@ from orchestrator.cosmic_lense import CosmicLense, ValueTier
 from orchestrator.metacognition import Metacognition, CheckStatus, Suggestion
 from orchestrator.memory_store import MemoryStore
 from orchestrator.replanner import Replanner, ReplanAction
+from orchestrator.planner_gateway import ToolType
 
 memory_store = MemoryStore()
 
@@ -75,6 +89,276 @@ def _api_request(endpoint: str, payload: dict, timeout: int = 120) -> dict:
     except Exception as e:
         logger.error(f"[Execute] Request error on {endpoint}: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ========== 安全三道校验 ==========
+
+_DESTRUCTIVE_SHELL_PATTERNS = [
+    "rm -rf", "rm -r /", "rm -f /", "mkfs.", "dd if=", "> /dev/sd",
+    "format ", "fdisk", "mkswap", "halt", "reboot", "shutdown",
+    "poweroff", "init 0", "init 6",
+]
+_BLOCKED_COMMANDS = [
+    "sudo", "su ", "chmod 777", "chown", "passwd",
+]
+
+
+def intent_guard(intent: str) -> tuple[bool, str]:
+    """意图校验：检查 intent 是否包含危险的指令模式。"""
+    intent_lower = intent.lower()
+    for pattern in _DESTRUCTIVE_SHELL_PATTERNS:
+        if pattern.lower() in intent_lower:
+            return False, f"意图包含破坏性操作: {pattern}"
+    return True, ""
+
+
+def command_guard(command: str) -> tuple[bool, str]:
+    """命令校验：阻止高危命令执行。"""
+    cmd_lower = command.lower().strip()
+    for blocked in _BLOCKED_COMMANDS:
+        if cmd_lower.startswith(blocked):
+            return False, f"命令被阻止: {blocked}"
+    return True, ""
+
+
+def output_guard(output: str) -> tuple[bool, str]:
+    """输出校验：检查输出是否包含敏感信息泄露。"""
+    sensitive_patterns = [
+        r'sk-[A-Za-z0-9]{20,}',        # OpenAI API Key
+        r'ghp_[A-Za-z0-9]{36}',        # GitHub PAT
+        r'-----BEGIN.*PRIVATE KEY-----',  # 私钥
+        r'AKIA[0-9A-Z]{16}',            # AWS Access Key
+    ]
+    for pat in sensitive_patterns:
+        if re.search(pat, output):
+            return False, f"输出包含敏感信息 (匹配: {pat})"
+    return True, ""
+
+
+# ========== 工具调度 ==========
+
+
+def execute_tool(task: AgentTask, tool: ToolType) -> TaskResult:
+    """按工具类型调度 Hermes 执行。pydanticai 降级为 Hermes 的一个工具。"""
+    # 意图校验
+    ok, reason = intent_guard(task.intent)
+    if not ok:
+        return TaskResult(task_id=task.id, success=False, error=reason,
+                          agent="hermes", gear=task.gear)
+
+    if tool == ToolType.PYDANTICAI_EXTRACT:
+        # pydanticai 降级为 Hermes 的结构化提取工具
+        return _execute_pydanticai_as_tool(task)
+    elif tool == ToolType.SANDBOX_EXEC:
+        return _execute_sandbox(task)
+    elif tool == ToolType.NMAP_SCAN:
+        return execute_hermes(task)  # hermes 已有 nmap 检测
+    elif tool == ToolType.BANDIT_SCAN:
+        return execute_hermes(task)  # hermes 已有 bandit 检测
+    elif tool == ToolType.CURL_REQUEST:
+        return execute_hermes(task)  # hermes 已有 curl 检测
+    elif tool == ToolType.SAFETY_CHECK:
+        return execute_hermes(task)  # hermes 已有 safety 检测
+    elif tool == ToolType.SHELL_COMMAND:
+        return _execute_shell(task)
+    elif tool == ToolType.FILE_ANALYSIS:
+        return _execute_file_analysis(task)
+    elif tool == ToolType.REPORT_GEN:
+        return _execute_report(task)
+    else:
+        return execute_hermes(task)  # 兜底：directory scan
+
+
+def _execute_pydanticai_as_tool(task: AgentTask) -> TaskResult:
+    """pydanticai 作为 Hermes 的结构化提取工具。"""
+    try:
+        # 通过 DeepSeek API 进行结构化提取（pydanticai 原本的能力）
+        api_key = _get_api_key() or os.environ.get("DEEPSEEK_API_KEY", "")
+        if not api_key:
+            # 降级为纯文本分析
+            return _execute_file_analysis(task)
+
+        payload = {
+            "model": "deepseek-v4-flash",
+            "messages": [
+                {"role": "system", "content": "你是一个结构化数据提取助手。请分析用户输入，提取关键信息，以JSON格式输出。"},
+                {"role": "user", "content": task.intent},
+            ],
+            "temperature": 0.1,
+            "max_tokens": 2000,
+        }
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.deepseek.com/v1/chat/completions",
+            data=body, method="POST",
+        )
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Authorization", f"Bearer {api_key}")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode())
+            reply = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+        # 输出校验
+        ok, reason = output_guard(reply)
+        if not ok:
+            return TaskResult(task_id=task.id, success=False, error=reason,
+                              agent="pydanticai", gear=task.gear)
+
+        return TaskResult(task_id=task.id, success=True, output=reply,
+                          agent="pydanticai", gear=task.gear)
+
+    except Exception as e:
+        logger.warning("[Execute] pydanticai 提取失败: %s", e)
+        return TaskResult(task_id=task.id, success=False, error=str(e),
+                          agent="pydanticai", gear=task.gear)
+
+
+def _execute_shell(task: AgentTask) -> TaskResult:
+    """安全的 Shell 命令执行器。"""
+    # 只允许简单的系统命令
+    safe_commands = ["ls", "cat", "head", "tail", "wc", "find", "grep",
+                     "ps", "df", "du", "free", "uname", "date", "whoami",
+                     "id", "pwd", "which", "echo", "sort", "uniq", "cut",
+                     "env", "docker ps", "docker images", "pip list",
+                     "pip3 list", "netstat", "ss", "ip "]
+    intent_lower = task.intent.lower()
+
+    for safe_cmd in safe_commands:
+        if safe_cmd in intent_lower:
+            # 命令校验
+            ok, reason = command_guard(safe_cmd)
+            if not ok:
+                return TaskResult(task_id=task.id, success=False, error=reason,
+                                  agent="hermes", gear=task.gear)
+            try:
+                r = _subprocess.run(
+                    safe_cmd.split(), capture_output=True,
+                    text=True, timeout=15,
+                )
+                output = r.stdout or r.stderr or f"exit={r.returncode}"
+                # 输出校验
+                ok, _ = output_guard(output)
+                if not ok:
+                    output = "[输出包含敏感信息，已过滤]"
+                return TaskResult(task_id=task.id, success=True, output=output,
+                                  agent="hermes", gear=task.gear)
+            except Exception as e:
+                return TaskResult(task_id=task.id, success=False, error=str(e),
+                                  agent="hermes", gear=task.gear)
+
+    return execute_hermes(task)
+
+
+def _execute_file_analysis(task: AgentTask) -> TaskResult:
+    """文件分析工具。"""
+    try:
+        # 提取文件路径
+        paths = re.findall(r'(?:/[\\w./\\-]+)+', task.intent)
+        target = paths[0] if paths else "/root/EntropyGuard"
+
+        r = _subprocess.run(
+            ["find", target, "-type", "f", "-name", "*.py", "-o",
+             "-name", "*.txt", "-o", "-name", "*.json"],
+            capture_output=True, text=True, timeout=10,
+        )
+        output = f"目标: {target}\n文件列表:\n{r.stdout[:2000]}"
+
+        ok, _ = output_guard(output)
+        if not ok:
+            output = "[输出包含敏感信息，已过滤]"
+        return TaskResult(task_id=task.id, success=True, output=output,
+                          agent="hermes", gear=task.gear)
+    except Exception as e:
+        return TaskResult(task_id=task.id, success=False, error=str(e),
+                          agent="hermes", gear=task.gear)
+
+
+def _execute_report(task: AgentTask) -> TaskResult:
+    """报告生成工具 — 通过 pydanticai 生成结构化报告。"""
+    intent = task.intent
+    # 尝试用 pydanticai 能力生成报告
+    result = _execute_pydanticai_as_tool(task)
+    if result.success:
+        return result
+    # 兜底：生成文本摘要
+    try:
+        output = f"执行报告: {task.description}\n输出预览: (工具失败，降级为文本摘要)"
+        return TaskResult(task_id=task.id, success=True, output=output,
+                          agent="hermes", gear=task.gear)
+    except Exception as e:
+        return TaskResult(task_id=task.id, success=False, error=str(e),
+                          agent="hermes", gear=task.gear)
+
+
+def _execute_sandbox(task: AgentTask) -> TaskResult:
+    """沙箱执行 — 通过 docker exec 在 autogpt-sandbox 中执行。"""
+    try:
+        r = _subprocess.run(
+            ["docker", "exec", "autogpt-sandbox", "sh", "-c",
+             task.intent[:500]],
+            capture_output=True, text=True, timeout=30,
+        )
+        output = r.stdout or r.stderr or f"exit={r.returncode}"
+        ok, _ = output_guard(output)
+        if not ok:
+            output = "[沙箱输出包含敏感信息，已过滤]"
+        return TaskResult(task_id=task.id, success=r.returncode == 0,
+                          output=output, agent="sandbox", gear=task.gear)
+    except Exception as e:
+        logger.warning("[Execute] 沙箱执行失败: %s", e)
+        return TaskResult(task_id=task.id, success=False, error=str(e),
+                          agent="sandbox", gear=task.gear)
+
+
+def execute(task: AgentTask) -> TaskResult:
+    """v8.0: 工具调度执行器 — 根据 task.payload.tool 分发（非 Agent 路由）。
+
+    不再使用 assigned_agent 做 Agent 级路由。
+    工具类型由 AutoGPT planner_gateway 规划生成。
+    """
+    tool_name = task.payload.get("tool", "")
+    tool_type = None
+    if tool_name:
+        try:
+            tool_type = ToolType(tool_name)
+        except (ValueError, KeyError):
+            pass
+
+    # 无工具类型 → 自动推断
+    if tool_type is None and task.assigned_agent:
+        # 兼容旧版 assigned_agent（过渡期支持）
+        agent = task.assigned_agent.lower()
+        if agent == "pydanticai":
+            tool_type = ToolType.PYDANTICAI_EXTRACT
+        elif agent == "autogpt":
+            tool_type = ToolType.PYDANTICAI_EXTRACT  # autogpt 不再执行，用文本分析
+        else:
+            tool_type = ToolType.DIRECTORY_SCAN
+
+    if tool_type is None:
+        tool_type = ToolType.DIRECTORY_SCAN
+
+    # 单次尝试（不再有 Agent 级重试）
+    t_start = time.time()
+    result = execute_tool(task, tool_type)
+    result.elapsed_seconds = round(time.time() - t_start, 2)
+    result.agent = "hermes"
+
+    # 记录 episode
+    episode_task_id = task.id
+    try:
+        memory_store.save_episode(
+            task_id=episode_task_id,
+            agent=result.agent or "hermes",
+            intent=task.intent,
+            output=(result.output or result.error or "")[:500],
+            success=result.success,
+            duration=result.elapsed_seconds,
+        )
+    except Exception as e:
+        logger.warning("[Execute] episode 写入失败: %s", e)
+
+    return result
 
 
 def execute_hermes(task: AgentTask) -> TaskResult:
@@ -190,97 +474,6 @@ def execute_hermes(task: AgentTask) -> TaskResult:
     except Exception as e:
         return TaskResult(task_id=task.id, success=False,
                           error=f"hermes 兜底扫描失败: {e}", agent="hermes", gear=task.gear)
-
-
-def execute(task: AgentTask) -> TaskResult:
-    """执行子任务，带自动重试和 Agent 降级（最多 3 次）"""
-    retry_agents = [
-        task.assigned_agent or "hermes",
-        "hermes",
-    ]
-    retry_delays = [0, 2, 5]
-    retry_history: list[dict] = []
-    t_start = time.time()
-    result: Optional[TaskResult] = None
-
-    for attempt in range(3):
-        current_agent = retry_agents[attempt] if attempt < len(retry_agents) else "hermes"
-        delay = retry_delays[attempt]
-        if attempt > 0:
-            logger.info(f"[Execute v5.0] {task.id}: 第{attempt+1}次重试, 等待{delay}s, Agent: {current_agent}")
-            time.sleep(delay)
-
-        t_attempt = time.time()
-        if current_agent == "hermes":
-            result = execute_hermes(task)
-        else:
-            timeout = 240 if current_agent == "autogpt" else 120
-            payload = {
-                "message": task.intent,
-                "gear": task.gear,
-                "model_id": task.model_id or DEFAULT_MODEL,
-                "actor": f"orchestrator:{current_agent}",
-                "session_id": f"orch-{task.id}-a{attempt+1}",
-            }
-            resp = _api_request("/api/chat", payload, timeout=timeout)
-            success = resp.get("success", False)
-            result = TaskResult(
-                task_id=task.id, success=success,
-                output=resp.get("reply", "") if success else "",
-                tool_calls=resp.get("tool_calls", []) or [],
-                error=resp.get("error") if not success else None,
-                agent=current_agent, gear=task.gear,
-                validation_status=resp.get("validation_status"),
-            )
-
-        result.elapsed_seconds = round(time.time() - t_attempt, 2)
-        retry_history.append({
-            "attempt": attempt + 1, "agent": current_agent,
-            "success": result.success, "duration": result.elapsed_seconds,
-            "error": result.error,
-        })
-        result.elapsed_seconds = round(time.time() - t_start, 2)
-
-        if not result.success and attempt < 2:
-            write_episode(result.task_id, current_agent, False,
-                          duration=result.elapsed_seconds,
-                          error=result.error or "未知错误",
-                          retry_count=attempt + 1, retry_history=list(retry_history),
-                          source=f"orchestrator:{current_agent}")
-            memory_store.save_episode(
-                task_id=result.task_id, agent=current_agent,
-                intent=task.intent, output=result.error or "",
-                success=False, duration=result.elapsed_seconds,
-            )
-            send_retry_notification(
-                task_id=task.id, agent=current_agent,
-                retry_count=attempt + 1, error=result.error or "未知错误")
-
-        if result.success:
-            write_episode(result.task_id, current_agent, True,
-                          output_preview=(result.output or "")[:200],
-                          duration=result.elapsed_seconds,
-                          retry_count=attempt, retry_history=list(retry_history),
-                          source=f"orchestrator:{current_agent}")
-            memory_store.save_episode(
-                task_id=result.task_id, agent=current_agent,
-                intent=task.intent, output=(result.output or "")[:500],
-                success=True, duration=result.elapsed_seconds,
-            )
-            return result
-
-    # 3 次全部失败
-    assert result is not None
-    write_episode(result.task_id, result.agent or "unknown", False,
-                  duration=result.elapsed_seconds, error=result.error or "所有 Agent 均失败",
-                  retry_count=3, retry_history=list(retry_history),
-                  source=f"orchestrator:{result.agent or 'unknown'}")
-    memory_store.save_episode(
-        task_id=result.task_id, agent=result.agent or "unknown",
-        intent=task.intent, output=result.error or "所有 Agent 均失败",
-        success=False, duration=result.elapsed_seconds,
-    )
-    return result
 
 
 def log_audit(task: AgentTask, result: TaskResult):

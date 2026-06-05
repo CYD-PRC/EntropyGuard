@@ -1,5 +1,9 @@
-"""Entropy Runtime · 多 Agent 协商仲裁器
+"""Entropy Runtime · 多 Agent 协商仲裁器 [已弃用]
 Phase 5 Module 3: 同一任务多 Agent 并行执行 + 评分选优 + 多数决。
+
+⚠️ 已弃用 (v8.0): 新架构中 AutoGPT 负责规划，Hermes 负责执行，
+    不再有多 Agent 竞赛。保留代码用于兼容旧版调用。
+    等价功能由 PlannerGateway + FeedbackLoop 替代。
 
 流程: arbitrate(task, agents) → ArbitrationResult → 选 winner → 记录到 memory
 """

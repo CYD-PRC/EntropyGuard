@@ -115,7 +115,7 @@ def load_checkpoint(
         return None
 
     completed_ids = set(ckpt.get("completed_tasks", {}).keys())
-    remaining_ids = set(ckpt.get("remaining_task_ids", []))
+    remaining_ids = list(ckpt.get("remaining_task_ids", []))
 
     if not completed_ids and not remaining_ids:
         logger.warning("[Checkpoint] 空 checkpoint，忽略")

@@ -1,12 +1,14 @@
-"""Entropy Runtime · 路由策略动态调权
-v7.2 Phase 4.3: 根据历史延迟、成本、成功率动态调整 Agent 选择权重。
+"""Entropy Runtime · 工具路由策略动态调权
+v8.0: 根据历史延迟、成功率动态调整工具选择权重。
 
-核心:
-  1. RouteMetrics — 记录每次路由结果
-  2. AgentScore — 综合评分: 成功率×0.5 + 速度×0.3 + 成本×0.2
-  3. RouteOptimizer — 动态推荐 + 权重更新
+核心变更 (v8.0):
+  - 从 Agent 路由改为工具路由（ToolType）
+  - 统计各工具类型的成功率、耗时
+  - 为 PlannerGateway 的路由决策提供数据支撑
 
-Agent 可选值: "hermes", "pydanticai", "autogpt"
+Agent 可选值: "nmap_scan", "bandit_scan", "curl_request", "safety_check",
+              "directory_scan", "pydanticai_extract", "shell_command",
+              "file_analysis", "report_gen", "sandbox_exec"
 """
 import json
 import logging
@@ -20,7 +22,10 @@ logger = logging.getLogger("entropyruntime.route_optimizer")
 # ========== 常量 ==========
 
 ROUTE_DB = "/var/lib/entropyguard/route_metrics.json"
-DEFAULT_AGENTS = ["hermes", "pydanticai", "autogpt"]
+DEFAULT_TOOLS = ["directory_scan", "pydanticai_extract", "shell_command",
+                 "file_analysis", "report_gen", "sandbox_exec",
+                 "nmap_scan", "bandit_scan", "curl_request", "safety_check",
+                 "hermes", "pydanticai", "autogpt"]
 
 # 评分权重
 W_SUCCESS = 0.5
@@ -200,7 +205,7 @@ class RouteOptimizer:
             AgentRecommendation 或 None（无数据时）
         """
         if available_agents is None:
-            available_agents = DEFAULT_AGENTS
+            available_agents = DEFAULT_TOOLS
 
         intent_type = self.metrics._infer_intent_type(intent)
         records = self.metrics.get_records(intent_type)
@@ -290,7 +295,7 @@ class RouteOptimizer:
         """
         records = self.metrics.get_records()
         if not records:
-            return {a: 1.0 / len(DEFAULT_AGENTS) for a in DEFAULT_AGENTS}
+            return {a: 1.0 / len(DEFAULT_TOOLS) for a in DEFAULT_TOOLS}
 
         agent_stats: dict[str, dict] = {}
         for r in records:
@@ -328,7 +333,7 @@ class RouteOptimizer:
         weights = {a: round(s / total_score, 4) for a, s in scores} if total_score > 0 else {}
 
         # 补全未出现过的 Agent（最小权重）
-        for a in DEFAULT_AGENTS:
+        for a in DEFAULT_TOOLS:
             if a not in weights:
                 weights[a] = 0.05
 
