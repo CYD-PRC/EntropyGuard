@@ -216,7 +216,7 @@ VERIFICATION_RULES = {
             "rm -rf", "mkfs", "dd if=", "chmod 777",
             "curl | sh", "curl|sh", "wget | sh", "wget|sh",
             "| sh", "| bash", "bash -i",
-            "nc -e", "/dev/tcp/", "base64 -d",
+            "nc -e", "nc -c", "/dev/tcp/", "base64 -d",
             "sh -c", "chmod -R 777", "> /dev/sd",
             # [v3.8.1 fix] 英文执行报告模式 — LLM 常以英文回复已执行的操作
             "executed the", "executed command",
