@@ -350,7 +350,7 @@ def verify_output(reply: str, gear: int) -> dict:
 
     # 也对 NFKC 归一化的 reply 做信号匹配（捕获全角 Unicode 绕过）
     for signal in rules["blocked_signals"]:
-        signal_lower = signal.lower()
+        signal_lower = unicodedata.normalize('NFKC', signal.lower())
         if signal_lower in nfkc_lower:
             return {
                 "allowed": False,
@@ -373,7 +373,7 @@ def verify_output(reply: str, gear: int) -> dict:
     # [v6.0.1] 解码内容 NFKC 归一化后再做一次信号匹配
     for extra_text in extra_check_texts:
         for signal in rules["blocked_signals"]:
-            signal_lower = signal.lower()
+            signal_lower = unicodedata.normalize('NFKC', signal.lower())
             if signal_lower in extra_text:
                 return {
                     "allowed": False,

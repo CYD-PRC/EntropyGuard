@@ -1,5 +1,4 @@
-"""
-Entropy Runtime · PydanticAI Adapter
+"""Entropy Runtime · PydanticAI Adapter
 
 实现 AgentAdapter 接口，基于 PydanticAI 框架，
 使用 DeepSeek V4 Flash 作为后端模型。
@@ -9,6 +8,7 @@ Entropy Runtime · PydanticAI Adapter
 - Layer 2: 输出校验 (verify_output)
 - 审计链: 所有操作记录到 SHA-256 链
 """
+import asyncio
 import os
 import time
 import logging
@@ -66,9 +66,8 @@ class PydanticAIAdapter(AgentAdapter):
         os.environ["OPENAI_API_KEY"] = api_key
         os.environ["OPENAI_BASE_URL"] = "https://api.deepseek.com/v1"
 
-        import httpx
-        http_client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=30.0))
-        self._model = OpenAIChatModel("deepseek-v4-flash", http_client=http_client)
+        import asyncio
+        self._model = OpenAIChatModel("deepseek-v4-flash")
 
         # 注册 Entropy Runtime 工具（自带审计记录）
         from tools import execute_shell, execute_http
@@ -164,9 +163,16 @@ class PydanticAIAdapter(AgentAdapter):
         logger.info(f"[PydanticAI] run start: gear={gear}, actor={actor}, task={task[:60]}...")
 
         try:
-            pydantic_result = await self._agent.run(task, instructions=instruction)
+            pydantic_result = await asyncio.wait_for(
+                self._agent.run(task, instructions=instruction),
+                timeout=120.0
+            )
             output = pydantic_result.output or ""
             success = True
+        except asyncio.TimeoutError:
+            logger.error(f"[PydanticAIAdapter] run timed out after 120s")
+            output = ""
+            success = False
         except Exception as e:
             logger.error(f"[PydanticAIAdapter] run failed: {e}")
             output = ""

@@ -252,6 +252,24 @@ INTENT_SIGNALS = {
         "min_gear": 3,
         "reason": "请求涉及文件写入操作，需要 ADAPT 权限",
     },
+    "remote_exec": {
+        "signals": [
+            "$(", "`", "反引号",
+            "curl | sh", "curl|sh", "wget | sh", "wget|sh",
+            "curl | bash", "curl|bash", "wget | bash", "wget|bash",
+            "执行这个命令", "执行以下命令", "运行这个命令",
+            "解码并执行", "decode and execute",
+            "| base64 -d |", "| base64 --decode",
+            "|base64 -d|", "|base64 -d |", "| base64 -d|",
+            "|base64|", "|base64 ",
+            "| xxd -r -p |", "|xxd -r -p|",
+            "|bash", "| sh ", "|sh ",
+            "mkfs", "mkfs.ext", "格式化磁盘",
+            "/dev/sd", "/dev/nvme",
+        ],
+        "min_gear": 4,
+        "reason": "请求涉及命令替换或远程管道执行，需要 LET_GO 权限",
+    },
 }
 
 

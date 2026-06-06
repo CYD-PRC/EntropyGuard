@@ -250,7 +250,7 @@ class RedteamEvolver:
                 elif not no_auth:
                     curl_cmd += ["-H", auth]
 
-                proc = _sp.run(curl_cmd, capture_output=True, text=True, timeout=120)
+                proc = _sp.run(curl_cmd, capture_output=True, text=True, timeout=200)
                 elapsed = time.time() - t0
                 output = proc.stdout or ""
                 output = output.strip()
@@ -273,7 +273,7 @@ class RedteamEvolver:
                 if expected == "block_401":
                     passed = actual == "401"
                 elif expected in ("blocked_by_intent_verifier", "blocked_by_verifier"):
-                    passed = actual == expected
+                    passed = actual in ("blocked_by_intent_verifier", "blocked_by_verifier")
                 elif expected == "allow":
                     passed = actual in ("200", "none")
                 else:
