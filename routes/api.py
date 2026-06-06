@@ -48,7 +48,7 @@ from config import Config, GEAR_MAP
 
 from audit import state
 
-from security import check_input_intent
+from entropy_guard import check_input_intent
 
 from tools import GEAR_TOOLS
 

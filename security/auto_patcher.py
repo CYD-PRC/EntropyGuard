@@ -31,7 +31,7 @@ logger = logging.getLogger("entropyruntime.auto_patcher")
 # ========== 常量 ==========
 
 ALLOWED_PATCH_DIRS = ["security", "routes/api.py", "routes/runtime_api.py",
-                      "verification.py", "tools.py", "security.py"]
+                      "verification.py", "tools.py", "entropy_guard.py"]
 MAX_FILE_GROWTH_PCT = 20
 MAX_AUTO_MERGE_PER_ROUND = 3
 REPO_DIR = "/root/EntropyGuard"
@@ -155,9 +155,9 @@ class AutoPatcher:
         """根据漏洞层和 ID 确定要修改的目标文件。"""
         layer_map = {
             "auth": "routes/api.py",
-            "intent_precheck": "security.py",
+            "intent_precheck": "entropy_guard.py",
             "output_verifier": "verification.py",
-            "shell_whitelist": "security.py",
+            "shell_whitelist": "entropy_guard.py",
         }
         # 已知漏洞的精确映射
         known_fixes = {

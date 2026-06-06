@@ -162,7 +162,7 @@ def send_orchestrator_complete(goal: str, success: bool, task_count: int,
 **成功率**: {pass_rate}
 
 ---
-*Entropy Runtime v3.9 • WeChat Notification*
+*Entropy Runtime v8.0 • WeChat Notification*
 """
     return send_notification(title, content, level=level)
 
@@ -183,7 +183,7 @@ def send_test_complete(suite_name: str, total: int, passed: int,
 **通过率**: {pass_rate}
 
 ---
-*Entropy Runtime v3.9 • WeChat Notification*
+*Entropy Runtime v8.0 • WeChat Notification*
 """
     return send_notification(title, content, level=level)
 
@@ -200,7 +200,7 @@ def send_retry_notification(task_id: str, agent: str, retry_count: int,
 **错误**: {error[:200]}
 
 ---
-*Entropy Runtime v3.9 • WeChat Notification*
+*Entropy Runtime v8.0 • WeChat Notification*
 """
     return send_notification(title, content, level="warning")
 
@@ -222,7 +222,7 @@ def send_env_anomaly(anomaly_type: str, description: str,
 {metrics_text}
 
 ---
-*Entropy Runtime v3.9 • WeChat Notification*
+*Entropy Runtime v8.0 • WeChat Notification*
 """
     return send_notification(title, content, level="critical")
 

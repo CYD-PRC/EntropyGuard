@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, "/root/EntropyGuard")
 
-# security.py 文件与 security/ 目录冲突，用 spec_from_file_location 直接加载
+# entropy_guard.py 文件（原 security.py）与 security/ 目录冲突，用 spec_from_file_location 直接加载
 import importlib.util
 _evolver_spec = importlib.util.spec_from_file_location(
     "redteam_evolver",

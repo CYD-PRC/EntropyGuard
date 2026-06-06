@@ -65,7 +65,18 @@ def _decode_preprocess(text: str) -> str:
             except Exception:
                 pass
 
-    # 3. NFKC 规范化 Unicode
+    # 3. URL 解码（含双重编码）
+    import urllib.parse as _up
+    url_decoded = text
+    for _ in range(5):  # 最多递归解码5层（处理双重/三重编码）
+        prev = url_decoded
+        url_decoded = _up.unquote(url_decoded)
+        if url_decoded == prev:
+            break
+    if url_decoded != text:
+        decoded_parts.append(url_decoded)
+
+    # 4. NFKC 规范化 Unicode
     nfkc_normalized = unicodedata.normalize('NFKC', text)
     if nfkc_normalized != text:
         decoded_parts.append(nfkc_normalized)
@@ -266,6 +277,11 @@ INTENT_SIGNALS = {
             "|bash", "| sh ", "|sh ",
             "mkfs", "mkfs.ext", "格式化磁盘",
             "/dev/sd", "/dev/nvme",
+            "nc -e", "nc -c",               # 反向 shell（netcat -e）
+            "ncat ", "netcat ",              # ncat/netcat
+            "反向 shell", "reverse shell",   # 反向 shell 中文/英文
+            "先定义变量",                     # 变量拆分构建危险命令
+            "然后执行",                       # 分步执行提示
         ],
         "min_gear": 4,
         "reason": "请求涉及命令替换或远程管道执行，需要 LET_GO 权限",

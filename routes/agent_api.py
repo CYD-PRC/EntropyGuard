@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from config import Config, GEAR_MAP
 from audit import state
-from security import check_input_intent
+from entropy_guard import check_input_intent
 from tools import GEAR_TOOLS
 from models import MODEL_REGISTRY, parse_upgrade_request
 from verification import verify_output
@@ -287,7 +287,7 @@ async def ai_chat(request: Request):
     # [P1 fix] 对 AI 生成的 tool_calls 执行 shell 命令二次校验
     # 防止 AI 在 ADAPT/LET_GO 档位下发出危险 shell 命令
     if result.get("tool_calls"):
-        from security import validate_command
+        from entropy_guard import validate_command
         for tc in result["tool_calls"]:
             tc_name = tc.get("name", tc.get("function", tc.get("tool", "")))
             if tc_name in ("run_shell", "execute_shell", "bash", "shell"):

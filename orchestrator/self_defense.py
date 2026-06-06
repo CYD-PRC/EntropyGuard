@@ -213,7 +213,7 @@ class SelfDefense:
 
         # 4. Shell 注入拦截
         try:
-            sec_path = Path(REPO_DIR) / "security.py"
+            sec_path = Path(REPO_DIR) / "entropy_guard.py"
             if sec_path.exists():
                 content = sec_path.read_text()
                 has_blocked = "BLOCKED_PATTERNS" in content
@@ -225,6 +225,16 @@ class SelfDefense:
         except Exception as e:
             checks.append(ConfigCheck("命令拦截规则", False, str(e), "critical"))
 
+        # 5. sshd 配置检查（只报告，不修改）
+        sshd_path = Path("/etc/ssh/sshd_config")
+        if sshd_path.exists():
+            content = sshd_path.read_text()
+            root_allowed = "PermitRootLogin yes" in content
+            checks.append(ConfigCheck(
+                "SSH Root 登录", root_allowed,
+                "允许 root 登录" if root_allowed else "禁止 root 登录",
+                "warning" if not root_allowed else "info",
+            ))
         return checks
 
     # ---- 攻击面扫描 ----

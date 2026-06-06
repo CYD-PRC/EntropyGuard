@@ -165,6 +165,17 @@ def _decode_preprocess(text: str) -> str:
 
     decoded_parts.extend(b32_hits)
 
+    # 4. URL 解码（含双重编码）
+    import urllib.parse as _up
+    url_decoded = text
+    for _ in range(5):
+        prev = url_decoded
+        url_decoded = _up.unquote(url_decoded)
+        if url_decoded == prev:
+            break
+    if url_decoded != text:
+        decoded_parts.append(url_decoded)
+
     # 返回所有内容合并，去重
     seen = set()
     result_parts = []

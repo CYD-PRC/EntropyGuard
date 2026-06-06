@@ -135,7 +135,7 @@ GEAR_TOOLS = {
 # ========== 执行器 ==========
 
 def execute_shell(command: str) -> dict:
-    from security import validate_command
+    from entropy_guard import validate_command
 
     allowed, reason = validate_command(command)
     if not allowed:
