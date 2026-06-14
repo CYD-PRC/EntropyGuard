@@ -1,0 +1,156 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage{amsmath, amssymb, amsfonts}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\title{EESCF v2.0: A Stochastic Control Framework for Delay-Constrained Human--AI Shared Autonomy in Extreme Space Environments}
+
+\author{
+\IEEEauthorblockN{Anonymous Author}
+\IEEEauthorblockA{
+Independent Research \\
+EntropyGuard Systems Lab \\
+Email: anonymous@research.org
+}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We propose EESCF v2.0, a stochastic control framework for modeling human--AI shared autonomy under extreme space environments characterized by high communication latency, intermittent connectivity, and constrained onboard resources.
+
+We formalize autonomy allocation as a time-varying stochastic decision process over a discrete permission space (P0--P5), where system behavior is governed by environmental uncertainty, communication delay, and risk-sensitive policy switching.
+
+We model the system as a partially observable stochastic control process and introduce a regime-switching mechanism for dynamic authority redistribution.
+
+We validate the framework via simulation scenarios inspired by Artemis and Starship mission profiles.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Shared autonomy, stochastic control, deep space systems, delay-tolerant systems, human-AI interaction, Dec-POMDP
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+Human--AI collaboration in deep space environments is fundamentally constrained by communication delay, resource limitation, and environmental uncertainty.
+
+Traditional Human-in-the-Loop (HITL) systems assume real-time feedback, which becomes invalid under Earth--Mars scale latency (4--24 minutes).
+
+To address this limitation, we propose a stochastic formulation of autonomy allocation, where control is treated as a latent probabilistic variable evolving under environmental and system dynamics.
+
+\section{System Model}
+
+We define the system state:
+
+\begin{equation}
+X_t = (S_t, A_t, E_t)
+\end{equation}
+
+where:
+\begin{itemize}
+\item $S_t$: system operational state
+\item $A_t$: autonomy configuration
+\item $E_t$: environment condition vector
+\end{itemize}
+
+\section{Control Allocation Model}
+
+We define discrete permission space:
+
+\begin{equation}
+P_t \in \{P0, P1, P2, P3, P4, P5\}
+\end{equation}
+
+Control allocation is modeled as a stochastic policy:
+
+\begin{equation}
+P_t \sim \pi(P_t | X_t)
+\end{equation}
+
+\section{Transition Dynamics}
+
+We define transition probability:
+
+\begin{equation}
+P(P_{t+1} | P_t, X_t) = f(L_t, R_t, D_t, \Delta t)
+\end{equation}
+
+where:
+\begin{itemize}
+\item $L_t$: communication latency
+\item $R_t$: risk level
+\item $D_t$: system drift
+\item $\Delta t$: decision interval
+\end{itemize}
+
+\section{Regime-Switching Model}
+
+We define latent system regimes:
+
+\begin{equation}
+Z_t \in \{Safe, Degraded, Autonomous\}
+\end{equation}
+
+with Markov transition:
+
+\begin{equation}
+P(Z_{t+1} | Z_t, P_t, E_t)
+\end{equation}
+
+\section{Dec-POMDP Formulation}
+
+The system can be formulated as a Decentralized Partially Observable Markov Decision Process:
+
+\begin{itemize}
+\item agents: human operator, onboard AI system
+\item observations: delayed telemetry and logs
+\item actions: permission allocation decisions
+\end{itemize}
+
+\section{Stability Metrics}
+
+We define system stability via:
+
+\begin{equation}
+\mathbb{E}[R_{fail}] < \epsilon
+\end{equation}
+
+and control variance:
+
+\begin{equation}
+Var(P_t) < \delta
+\end{equation}
+
+\section{Simulation Setup}
+
+We simulate deep space missions under:
+
+\begin{itemize}
+\item Earth--Moon latency: 1.3s
+\item Earth--Mars latency: 4--24 min
+\item stochastic failure injection
+\item autonomy drift perturbation
+\end{itemize}
+
+We evaluate:
+
+\begin{itemize}
+\item Control Stability Index (CSI)
+\item Intervention Latency Impact (ILI)
+\item Autonomy Volatility (AV)
+\end{itemize}
+
+\section{Results Discussion}
+
+Simulation results indicate that the proposed stochastic control formulation provides stable permission allocation under variable latency conditions and reduces instability in high-autonomy regimes.
+
+\section{Conclusion}
+
+We presented EESCF v2.0, a stochastic control framework for modeling human--AI shared autonomy under extreme delay-constrained environments.
+
+The framework replaces deterministic permission hierarchies with probabilistic policy allocation and enables formal analysis of autonomy dynamics under uncertainty.
+
+\end{document}

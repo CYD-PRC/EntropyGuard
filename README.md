@@ -216,6 +216,20 @@ Entropy Runtime 是 EEAL 协议的参考实现。
 
 协议规范：https://github.com/CYD-PRC/Entropy Runtime/blob/main/docs/
 
+## Publications
+
+The Gear-based autonomy framework implemented in this repository is
+formally described in three related papers, all available on Zenodo under
+CC-BY-4.0 open access:
+
+| Paper | DOI | Focus |
+|-------|-----|-------|
+| PRE-GHR v3.0 | [10.5281/zenodo.20685899](https://doi.org/10.5281/zenodo.20685899) | Continuous control drift (Gear 1–5) |
+| EESCF v2.0 | [10.5281/zenodo.20687118](https://doi.org/10.5281/zenodo.20687118) | Delay-constrained permission allocation (P0–P5) |
+| UHACD v1.0 | [10.5281/zenodo.20687498](https://doi.org/10.5281/zenodo.20687498) | Unified framework with Gear↔Permission coupling |
+
+LaTeX sources are in [`papers/`](papers/).
+
 ## License
 
 MIT

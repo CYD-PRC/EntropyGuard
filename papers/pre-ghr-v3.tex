@@ -1,0 +1,262 @@
+\documentclass[11pt]{article}
+
+\usepackage{amsmath, amssymb, amsfonts}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\title{PRE-GHR v3.0: A Partially Observable Stochastic Control Framework for Modeling Progressive Human--AI Authority Degradation in Autonomous Systems}
+
+\author{Anonymous}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We present PRE-GHR v3.0, a formal framework for modeling long-term human--AI control dynamics as a partially observable stochastic control system.
+
+Unlike static autonomy taxonomies, we model human control as a latent state variable evolving under autonomy pressure, external tool expansion, and interaction noise.
+
+We formulate control evolution as a non-linear stochastic dynamical system under partial observability, where human operators only observe indirect signals of system controllability.
+
+We introduce a latent control state model, a regime-switching structure, a discrete Gear-based abstraction layer, and an empirical validation protocol using autonomous agent execution traces.
+
+The framework explains gradual control degradation and apparent regime transitions without invoking physical thermodynamic assumptions.
+\end{abstract}
+
+\section{Introduction}
+
+Human--AI systems increasingly exhibit complex interaction dynamics in which control is not static but evolves over time. Existing autonomy taxonomies such as SAE J3016 provide categorical descriptions but fail to capture continuous degradation of effective human control.
+
+We propose that human control should be modeled as a latent stochastic variable influenced by system autonomy expansion, external tool integration, and feedback delay.
+
+This leads to a formulation of human control as a partially observable stochastic process.
+
+\section{Problem Formulation}
+
+We define the system:
+
+\begin{equation}
+\mathcal{S} = (X_t, A_t, O_t)
+\end{equation}
+
+where $X_t$ is the latent system state, $A_t$ is the joint action space, and $O_t$ is the observed log space.
+
+Human control is defined as a latent function:
+
+\begin{equation}
+C_t = f(X_t), \quad C_t \in [0,1]
+\end{equation}
+
+However, $C_t$ is not directly observable.
+
+\section{Control Dynamics Model}
+
+We model control evolution as a stochastic dynamical system:
+
+\begin{equation}
+C_{t+1} = C_t + F(C_t, A_t, E_t) + \epsilon_t
+\end{equation}
+
+where:
+\begin{itemize}
+\item $F$ is a nonlinear drift function,
+\item $A_t$ represents autonomy pressure,
+\item $E_t$ represents external system expansion,
+\item $\epsilon_t$ is stochastic noise.
+\end{itemize}
+
+\section{Regime-Switching Structure}
+
+We define three operational regimes:
+
+\begin{itemize}
+\item $S_1$: High human control
+\item $S_2$: Mixed control
+\item $S_3$: Emergent autonomy
+\end{itemize}
+
+System evolution is modeled as:
+
+\begin{equation}
+P(S_{t+1} | S_t, A_t)
+\end{equation}
+
+This defines a Hidden Markov Regime Model (HMRM).
+
+\section{Gear-Based Discretization}
+
+We define a discrete abstraction mapping:
+
+\begin{equation}
+G = \phi(C_t)
+\end{equation}
+
+where $\phi$ is a quantization function mapping continuous control states into discrete operational levels:
+
+\begin{itemize}
+\item Gear 1: $C_t > 0.8$
+\item Gear 2: $0.6 < C_t \leq 0.8$
+\item Gear 3: $0.4 < C_t \leq 0.6$
+\item Gear 4: $0.2 < C_t \leq 0.4$
+\item Gear 5: $C_t \leq 0.2$
+\end{itemize}
+
+\section{Observability Model}
+
+We define observation function:
+
+\begin{equation}
+O_t = h(C_t) + \eta_t
+\end{equation}
+
+where $O_t$ represents logs, execution traces, and intervention signals.
+
+The system is therefore partially observable.
+
+\section{Theoretical Results}
+
+\subsection{Theorem 1: Control Drift Under Expansion Pressure}
+
+Under persistent autonomy expansion pressure:
+
+\begin{equation}
+\mathbb{E}[C_{t+1}] \leq \mathbb{E}[C_t] + \beta R_t
+\end{equation}
+
+where $R_t$ is intervention effort.
+
+\subsection{Theorem 2: Regime Stability}
+
+Each regime $S_i$ has a stability region $\Omega_i$ such that:
+
+\begin{equation}
+P(S_t = S_i) > 1 - \delta
+\end{equation}
+
+within $\Omega_i$.
+
+\subsection{Theorem 3: Observability Limitation}
+
+Control is not fully observable:
+
+\begin{equation}
+I(C_t; O_t) < 1
+\end{equation}
+
+indicating partial observability.
+
+\section{Empirical Validation Protocol}
+
+We propose evaluation using autonomous agent system logs.
+
+\subsection{Data Sources}
+\begin{itemize}
+\item task execution traces
+\item tool invocation logs
+\item intervention records
+\end{itemize}
+
+\subsection{Metrics}
+\begin{itemize}
+\item Intervention Success Rate (ISR)
+\item Control Drift Index (CDI)
+\item Autonomy Expansion Rate (AER)
+\end{itemize}
+
+\subsection{Hypothesis}
+Higher AER correlates with faster decay in estimated $C_t$.
+
+\section{Experimental Design}
+
+We simulate an agent system consisting of:
+
+\begin{itemize}
+\item planner module
+\item executor module
+\item tool-use interface
+\item memory persistence layer
+\end{itemize}
+
+We measure:
+
+\begin{itemize}
+\item trajectory of $C_t$
+\item regime transitions
+\item Gear shifts over time
+\end{itemize}
+
+\section{Discussion and Future Work}
+
+The PRE-GHR v3.0 framework provides a formal grounding for human--AI control dynamics that respects the fundamental partial observability of control states.
+
+By moving from thermodynamic metaphors to a stochastic control formulation, we enable empirically testable predictions about control degradation trajectories.
+
+Future work includes:
+\begin{itemize}
+\item Learning the latent drift function $F$ from real-world agent logs
+\item Calibrating Gear thresholds to specific system architectures
+\item Extending the model to multi-agent control settings
+\end{itemize}
+
+\section{Conclusion}
+
+We introduced a partially observable stochastic control framework for modeling human--AI authority degradation. The framework captures gradual control drift, regime transitions, and the fundamental limitation of observability. A discrete Gear abstraction bridges the model to practical system design, and an empirical validation protocol enables quantitative testing.
+
+\begin{thebibliography}{10}
+
+\bibitem{landauer1961}
+R. Landauer.
+Irreversibility and heat generation in the computing process.
+\textit{IBM Journal of Research and Development}, 1961.
+
+\bibitem{sae2021}
+SAE International.
+SAE J3016: Taxonomy and Definitions for Terms Related to Driving Automation Systems.
+SAE Standard, 2021.
+
+\bibitem{mirsky2025}
+R. Mirsky and P. Stone.
+Artificial intelligent disobedience: Rethinking the agency of our artificial teammates.
+\textit{AAAI Journal}, 2025.
+
+\bibitem{zou2025}
+L. Zou and Y. Ma.
+Meaningful human control: Practical dilemmas of a consensus principle in AI.
+\textit{Medicine and Philosophy}, 2025.
+
+\bibitem{yu2024}
+D. Yu.
+Meaningful human control: Ethical principles of shared control in human--AI systems.
+Zhejiang University, 2024.
+
+\bibitem{barton2025}
+J. Barton.
+From decoherence to coherent intelligence: A thermodynamic framework for AI structure.
+\textit{Preprints.org}, 2025.
+
+\bibitem{nakashima2026}
+K. Nakashima.
+Physical admissibility of intelligence.
+\textit{Theory Archive}, 2026.
+
+\bibitem{chen2025}
+B. Chen and W. Yu.
+Restricted Boltzmann machine as a probabilistic Enigma.
+\textit{arXiv:2507.17236}, 2025.
+
+\bibitem{simon1996}
+H. A. Simon.
+\textit{The Sciences of the Artificial}.
+MIT Press, 1996.
+
+\bibitem{maes2022}
+P. Maes.
+Human-autonomy teaming: A survey and roadmap.
+\textit{ACM Transactions on Human-Computer Interaction}, 2022.
+
+\end{thebibliography}
+
+\end{document}
